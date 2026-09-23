@@ -8,6 +8,7 @@ import com.rpe.catalog.domain.ProductStatus;
 import com.rpe.catalog.exception.CancelledProductExistsException;
 import com.rpe.catalog.exception.DuplicateProductNameException;
 import com.rpe.catalog.exception.InvalidProductNameException;
+import com.rpe.catalog.exception.ProductAlreadyActiveException;
 import com.rpe.catalog.exception.ProductNotFoundException;
 import com.rpe.catalog.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
@@ -88,17 +89,17 @@ class ProductServiceTest {
     }
 
     @Test
-    void updateChangesAllFields() {
+    void updateChangesNameAndDescriptionButNotStatus() {
         Product product = new Product("Gold", "Old description");
         when(productRepository.findById(id)).thenReturn(Optional.of(product));
         when(productRepository.findByName("PLATINUM")).thenReturn(Optional.empty());
 
         ProductResponse response = productService.update(id,
-                new UpdateProductRequest("Platinum", "New description", ProductStatus.CANCELADO));
+                new UpdateProductRequest("Platinum", "New description"));
 
         assertThat(response.name()).isEqualTo("PLATINUM");
         assertThat(response.description()).isEqualTo("New description");
-        assertThat(response.status()).isEqualTo(ProductStatus.CANCELADO);
+        assertThat(response.status()).isEqualTo(ProductStatus.ATIVO);
     }
 
     @Test
@@ -108,7 +109,7 @@ class ProductServiceTest {
         when(productRepository.findByName("GOLD")).thenReturn(Optional.of(product));
 
         ProductResponse response = productService.update(id,
-                new UpdateProductRequest("gold", "New description", ProductStatus.ATIVO));
+                new UpdateProductRequest("gold", "New description"));
 
         assertThat(response.description()).isEqualTo("New description");
     }
@@ -120,7 +121,7 @@ class ProductServiceTest {
                 .thenReturn(Optional.of(productWithId(UUID.randomUUID(), "Platinum")));
 
         assertThatThrownBy(() -> productService.update(id,
-                new UpdateProductRequest("Platinum", null, ProductStatus.ATIVO)))
+                new UpdateProductRequest("Platinum", null)))
                 .isInstanceOf(DuplicateProductNameException.class);
     }
 
@@ -132,7 +133,7 @@ class ProductServiceTest {
         when(productRepository.findByName("PLATINUM")).thenReturn(Optional.of(cancelled));
 
         assertThatThrownBy(() -> productService.update(id,
-                new UpdateProductRequest("Platinum", null, ProductStatus.ATIVO)))
+                new UpdateProductRequest("Platinum", null)))
                 .isInstanceOf(CancelledProductExistsException.class);
     }
 
@@ -144,6 +145,46 @@ class ProductServiceTest {
         productService.cancel(id);
 
         assertThat(product.getStatus()).isEqualTo(ProductStatus.CANCELADO);
+    }
+
+    @Test
+    void cancelIsIdempotentForAlreadyCancelledProduct() {
+        Product product = new Product("Gold", null);
+        product.cancel();
+        when(productRepository.findById(id)).thenReturn(Optional.of(product));
+
+        productService.cancel(id);
+
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.CANCELADO);
+    }
+
+    @Test
+    void activateReactivatesCancelledProduct() {
+        Product product = productWithId(id, "Gold");
+        product.cancel();
+        when(productRepository.findById(id)).thenReturn(Optional.of(product));
+
+        ProductResponse response = productService.activate(id);
+
+        assertThat(response.status()).isEqualTo(ProductStatus.ATIVO);
+        verify(productRepository).flush();
+    }
+
+    @Test
+    void activateRejectsProductThatIsAlreadyActive() {
+        when(productRepository.findById(id)).thenReturn(Optional.of(productWithId(id, "Gold")));
+
+        assertThatThrownBy(() -> productService.activate(id))
+                .isInstanceOf(ProductAlreadyActiveException.class);
+        verify(productRepository, never()).flush();
+    }
+
+    @Test
+    void activateThrowsWhenMissing() {
+        when(productRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productService.activate(id))
+                .isInstanceOf(ProductNotFoundException.class);
     }
 
     private static Product productWithId(UUID id, String name) {

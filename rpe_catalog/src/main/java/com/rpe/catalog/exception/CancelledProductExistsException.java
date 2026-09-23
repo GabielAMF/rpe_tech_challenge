@@ -16,7 +16,8 @@ public class CancelledProductExistsException extends BusinessRuleException {
 
     public CancelledProductExistsException(UUID productId, String name) {
         super(ErrorCode.CANCELLED_PRODUCT_EXISTS,
-                "A product named '" + name + "' already exists but is cancelled; reactivate that product instead");
+                "A product named '" + name + "' already exists but is cancelled; reactivate it with POST /api/v1/products/"
+                        + productId + "/activate");
         this.productId = productId;
     }
 

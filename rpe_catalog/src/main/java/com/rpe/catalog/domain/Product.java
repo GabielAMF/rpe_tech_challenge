@@ -1,6 +1,7 @@
 package com.rpe.catalog.domain;
 
 import com.rpe.catalog.exception.InvalidProductNameException;
+import com.rpe.catalog.exception.ProductAlreadyActiveException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -42,10 +43,10 @@ public class Product extends AuditableEntity {
         this.status = ProductStatus.ATIVO;
     }
 
-    public void update(String name, String description, ProductStatus status) {
+    /** Changes name and description only; status changes go through {@link #cancel()} and {@link #activate()}. */
+    public void update(String name, String description) {
         this.name = normalizeName(name);
         this.description = description;
-        this.status = status;
     }
 
     /**
@@ -62,5 +63,12 @@ public class Product extends AuditableEntity {
 
     public void cancel() {
         this.status = ProductStatus.CANCELADO;
+    }
+
+    public void activate() {
+        if (status == ProductStatus.ATIVO) {
+            throw new ProductAlreadyActiveException(id);
+        }
+        this.status = ProductStatus.ATIVO;
     }
 }
