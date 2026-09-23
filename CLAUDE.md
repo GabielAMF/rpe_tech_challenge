@@ -48,6 +48,16 @@ the HTTP status); business-rule violations extend `BusinessRuleException`. `Glob
 all errors — including Spring's own — as ProblemDetail with extra `code` and `timestamp` fields. To add an
 error: add an `ErrorCode` constant and a `CustomException` subclass; no handler change needed.
 
+### rpe_client_manager
+
+Same layering and error format as rpe_catalog (base classes copied, not shared — services stay independent).
+Security (`config/SecurityConfig`): stateless JWT, HS256 via `JwtEncoder`/`JwtDecoder`, issued by
+`POST /api/v1/auth/login` (public); everything else needs a bearer token. Users live in `app_user` (BCrypt);
+an ADMIN is created on startup from `app.security.bootstrap-user`. Roles come from the `roles` claim and are
+enforced with URL rules in `SecurityConfig`, **not** `@PreAuthorize` (an `AccessDeniedException` thrown in a
+controller would hit `GlobalExceptionHandler`'s catch-all and become a 500). 401/403 are written by
+`SecurityProblemHandler` in the same ProblemDetail shape. Never log passwords or tokens.
+
 ## Requirements the services must cover
 
 - Expose REST APIs and call other applications (Spring Cloud OpenFeign; external APIs stubbed by WireMock).
