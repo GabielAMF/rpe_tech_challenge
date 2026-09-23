@@ -3,10 +3,11 @@ package com.rpe.catalog.controller;
 import com.rpe.catalog.controller.dto.CreateProductRequest;
 import com.rpe.catalog.controller.dto.ProductResponse;
 import com.rpe.catalog.domain.ProductStatus;
+import com.rpe.catalog.exception.CancelledProductExistsException;
+import com.rpe.catalog.exception.DuplicateProductNameException;
+import com.rpe.catalog.exception.InvalidProductNameException;
+import com.rpe.catalog.exception.ProductNotFoundException;
 import com.rpe.catalog.service.ProductService;
-import com.rpe.catalog.service.exception.CancelledProductExistsException;
-import com.rpe.catalog.service.exception.DuplicateProductNameException;
-import com.rpe.catalog.service.exception.ProductNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -18,6 +19,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -61,13 +63,17 @@ class ProductControllerTest {
 
         mockMvc.perform(get("/api/v1/products/{id}", ID))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.detail").value("Product " + ID + " not found"));
+                .andExpect(jsonPath("$.detail").value("Product " + ID + " not found"))
+                .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
     void getReturns400ForMalformedId() throws Exception {
         mockMvc.perform(get("/api/v1/products/not-a-uuid"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -93,6 +99,7 @@ class ProductControllerTest {
                                 {"name": " "}
                                 """))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.errors.name").exists());
     }
 
@@ -120,8 +127,48 @@ class ProductControllerTest {
                                 {"name": "Gold"}
                                 """))
                 .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CANCELLED_PRODUCT_EXISTS"))
                 .andExpect(jsonPath("$.productId").value(ID.toString()))
                 .andExpect(jsonPath("$.detail").value(containsString("cancelled")));
+    }
+
+    @Test
+    void postReturns409WithCodeOnDuplicateActiveName() throws Exception {
+        when(productService.create(any(CreateProductRequest.class)))
+                .thenThrow(new DuplicateProductNameException("GOLD"));
+
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name": "Gold"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRODUCT_NAME_ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.productId").doesNotExist());
+    }
+
+    @Test
+    void invalidProductNameFromDomainReturns400() throws Exception {
+        when(productService.create(any(CreateProductRequest.class)))
+                .thenThrow(new InvalidProductNameException());
+
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name": "Gold"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PRODUCT_NAME"));
+    }
+
+    @Test
+    void unexpectedErrorReturns500WithoutLeakingDetails() throws Exception {
+        when(productService.findById(ID)).thenThrow(new IllegalStateException("db password is hunter2"));
+
+        mockMvc.perform(get("/api/v1/products/{id}", ID))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.detail").value(not(containsString("hunter2"))));
     }
 
     @Test

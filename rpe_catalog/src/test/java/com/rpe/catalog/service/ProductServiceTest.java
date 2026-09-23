@@ -5,10 +5,11 @@ import com.rpe.catalog.controller.dto.ProductResponse;
 import com.rpe.catalog.controller.dto.UpdateProductRequest;
 import com.rpe.catalog.domain.Product;
 import com.rpe.catalog.domain.ProductStatus;
+import com.rpe.catalog.exception.CancelledProductExistsException;
+import com.rpe.catalog.exception.DuplicateProductNameException;
+import com.rpe.catalog.exception.InvalidProductNameException;
+import com.rpe.catalog.exception.ProductNotFoundException;
 import com.rpe.catalog.repository.ProductRepository;
-import com.rpe.catalog.service.exception.CancelledProductExistsException;
-import com.rpe.catalog.service.exception.DuplicateProductNameException;
-import com.rpe.catalog.service.exception.ProductNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,6 +49,13 @@ class ProductServiceTest {
         assertThat(response.name()).isEqualTo("BLACK CARD");
         assertThat(response.description()).isEqualTo("Gold card");
         assertThat(response.status()).isEqualTo(ProductStatus.ATIVO);
+    }
+
+    @Test
+    void createRejectsNameThatIsEmptyAfterTrimBeforeTouchingTheDatabase() {
+        assertThatThrownBy(() -> productService.create(new CreateProductRequest("   ", null)))
+                .isInstanceOf(InvalidProductNameException.class);
+        verifyNoInteractions(productRepository);
     }
 
     @Test
