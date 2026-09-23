@@ -3,6 +3,8 @@ package com.rpe.catalog.controller;
 import com.rpe.catalog.controller.dto.CreateProductRequest;
 import com.rpe.catalog.controller.dto.ProductResponse;
 import com.rpe.catalog.controller.dto.UpdateProductRequest;
+import com.rpe.catalog.domain.Product;
+import com.rpe.catalog.domain.ProductName;
 import com.rpe.catalog.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,30 +28,32 @@ import java.util.UUID;
 public class ProductController {
 
     private final ProductService productService;
+    private final ProductMapper productMapper;
 
     @GetMapping("/{id}")
     public ProductResponse findById(@PathVariable UUID id) {
-        return productService.findById(id);
+        return productMapper.toResponse(productService.findById(id));
     }
 
     @PostMapping
     public ResponseEntity<ProductResponse> create(@Valid @RequestBody CreateProductRequest request) {
-        ProductResponse created = productService.create(request);
+        Product created = productService.create(new ProductName(request.name()), request.description());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
-                .buildAndExpand(created.id())
+                .buildAndExpand(created.getId())
                 .toUri();
-        return ResponseEntity.created(location).body(created);
+        return ResponseEntity.created(location).body(productMapper.toResponse(created));
     }
 
     @PutMapping("/{id}")
     public ProductResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateProductRequest request) {
-        return productService.update(id, request);
+        Product updated = productService.update(id, new ProductName(request.name()), request.description());
+        return productMapper.toResponse(updated);
     }
 
     @PostMapping("/{id}/activate")
     public ProductResponse activate(@PathVariable UUID id) {
-        return productService.activate(id);
+        return productMapper.toResponse(productService.activate(id));
     }
 
     @DeleteMapping("/{id}")

@@ -1,6 +1,5 @@
 package com.rpe.catalog.domain;
 
-import com.rpe.catalog.exception.InvalidProductNameException;
 import com.rpe.catalog.exception.ProductAlreadyActiveException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -14,7 +13,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 @Getter
@@ -37,28 +36,16 @@ public class Product extends AuditableEntity {
     @Column(name = "status", nullable = false, length = 20)
     private ProductStatus status;
 
-    public Product(String name, String description) {
-        this.name = normalizeName(name);
+    public Product(ProductName name, String description) {
+        this.name = Objects.requireNonNull(name, "name").value();
         this.description = description;
         this.status = ProductStatus.ATIVO;
     }
 
     /** Changes name and description only; status changes go through {@link #cancel()} and {@link #activate()}. */
-    public void update(String name, String description) {
-        this.name = normalizeName(name);
+    public void update(ProductName name, String description) {
+        this.name = Objects.requireNonNull(name, "name").value();
         this.description = description;
-    }
-
-    /**
-     * Product names are stored trimmed and upper-cased, so " gold " and "GOLD" are the same product.
-     * A name that is null or empty after trimming is rejected.
-     */
-    public static String normalizeName(String name) {
-        String trimmed = name == null ? "" : name.trim();
-        if (trimmed.isEmpty()) {
-            throw new InvalidProductNameException();
-        }
-        return trimmed.toUpperCase(Locale.ROOT);
     }
 
     public void cancel() {

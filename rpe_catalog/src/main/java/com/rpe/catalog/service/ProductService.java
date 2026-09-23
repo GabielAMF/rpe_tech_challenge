@@ -1,94 +1,27 @@
 package com.rpe.catalog.service;
 
-import com.rpe.catalog.controller.dto.CreateProductRequest;
-import com.rpe.catalog.controller.dto.ProductResponse;
-import com.rpe.catalog.controller.dto.UpdateProductRequest;
 import com.rpe.catalog.domain.Product;
-import com.rpe.catalog.domain.ProductStatus;
-import com.rpe.catalog.exception.CancelledProductExistsException;
-import com.rpe.catalog.exception.DuplicateProductNameException;
-import com.rpe.catalog.exception.ProductNotFoundException;
-import com.rpe.catalog.repository.ProductRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import com.rpe.catalog.domain.ProductName;
 
 import java.util.UUID;
 
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class ProductService {
+/**
+ * Product use cases. Works with domain types only, so it doesn't depend on the web layer.
+ */
+public interface ProductService {
 
-    private final ProductRepository productRepository;
+    /** @throws com.rpe.catalog.exception.ProductNotFoundException if no product has this id */
+    Product findById(UUID id);
 
-    @Transactional(readOnly = true)
-    public ProductResponse findById(UUID id) {
-        log.debug("Loading product id={} from the database", id);
-        return ProductResponse.from(getProduct(id));
-    }
+    /** Creates an ATIVO product. @throws com.rpe.catalog.exception.BusinessRuleException if the name is taken */
+    Product create(ProductName name, String description);
 
-    @Transactional
-    public ProductResponse create(CreateProductRequest request) {
-        String name = Product.normalizeName(request.name());
-        ensureNameAvailable(name, null);
-        // saveAndFlush so the audit timestamps are in the response.
-        Product product = productRepository.saveAndFlush(new Product(name, request.description()));
-        log.info("Created product id={} name='{}'", product.getId(), product.getName());
-        return ProductResponse.from(product);
-    }
+    /** Changes name and description only; status changes go through {@link #cancel} and {@link #activate}. */
+    Product update(UUID id, ProductName name, String description);
 
-    @Transactional
-    public ProductResponse update(UUID id, UpdateProductRequest request) {
-        Product product = getProduct(id);
-        String name = Product.normalizeName(request.name());
-        ensureNameAvailable(name, id);
-        product.update(name, request.description());
-        productRepository.flush();
-        log.info("Updated product id={} name='{}'", id, product.getName());
-        return ProductResponse.from(product);
-    }
+    /** Soft delete: marks the product CANCELADO. Idempotent. */
+    void cancel(UUID id);
 
-    /**
-     * Soft delete: the product is marked CANCELADO instead of being removed, so its history
-     * and any references from other services stay valid.
-     */
-    @Transactional
-    public void cancel(UUID id) {
-        Product product = getProduct(id);
-        product.cancel();
-        log.info("Cancelled product id={}", id);
-    }
-
-    /** Reactivates a cancelled product. Throws ProductAlreadyActiveException (422) if it is already ATIVO. */
-    @Transactional
-    public ProductResponse activate(UUID id) {
-        Product product = getProduct(id);
-        product.activate();
-        // flush so updatedAt in the response is the one stored.
-        productRepository.flush();
-        log.info("Activated product id={}", id);
-        return ProductResponse.from(product);
-    }
-
-    /**
-     * Rejects a name already used by another product. A cancelled owner gets its own exception so the
-     * caller knows to reactivate that product. {@code currentId} is the product being updated (null on create).
-     */
-    private void ensureNameAvailable(String name, UUID currentId) {
-        productRepository.findByName(name)
-                .filter(existing -> currentId == null || !currentId.equals(existing.getId()))
-                .ifPresent(existing -> {
-                    if (existing.getStatus() == ProductStatus.CANCELADO) {
-                        throw new CancelledProductExistsException(existing.getId(), name);
-                    }
-                    throw new DuplicateProductNameException(name);
-                });
-    }
-
-    private Product getProduct(UUID id) {
-        return productRepository.findById(id)
-                .orElseThrow(() -> new ProductNotFoundException(id));
-    }
+    /** Reactivates a cancelled product. @throws com.rpe.catalog.exception.ProductAlreadyActiveException if already ATIVO */
+    Product activate(UUID id);
 }

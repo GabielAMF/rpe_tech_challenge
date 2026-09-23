@@ -1,11 +1,7 @@
 package com.rpe.catalog.domain;
 
-import com.rpe.catalog.exception.InvalidProductNameException;
 import com.rpe.catalog.exception.ProductAlreadyActiveException;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -13,37 +9,43 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ProductTest {
 
     @Test
-    void normalizeNameTrimsAndUpperCases() {
-        assertThat(Product.normalizeName("  black card ")).isEqualTo("BLACK CARD");
-    }
+    void newProductIsAtivoWithNormalizedName() {
+        Product product = new Product(new ProductName(" gold "), "Gold card");
 
-    @ParameterizedTest
-    @NullSource
-    @ValueSource(strings = {"", "   ", "\t\n"})
-    void normalizeNameRejectsNameThatIsEmptyAfterTrim(String name) {
-        assertThatThrownBy(() -> Product.normalizeName(name))
-                .isInstanceOf(InvalidProductNameException.class);
-    }
-
-    @Test
-    void constructorRejectsBlankName() {
-        assertThatThrownBy(() -> new Product("   ", null))
-                .isInstanceOf(InvalidProductNameException.class);
-    }
-
-    @Test
-    void updateRejectsBlankNameAndKeepsOldValues() {
-        Product product = new Product("Gold", "Gold card");
-
-        assertThatThrownBy(() -> product.update(" ", "New"))
-                .isInstanceOf(InvalidProductNameException.class);
         assertThat(product.getName()).isEqualTo("GOLD");
-        assertThat(product.getDescription()).isEqualTo("Gold card");
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.ATIVO);
+    }
+
+    @Test
+    void updateChangesNameAndDescriptionButNotStatus() {
+        Product product = new Product(new ProductName("Gold"), "Gold card");
+        product.cancel();
+
+        product.update(new ProductName("Platinum"), "New");
+
+        assertThat(product.getName()).isEqualTo("PLATINUM");
+        assertThat(product.getDescription()).isEqualTo("New");
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.CANCELADO);
+    }
+
+    @Test
+    void rejectsNullName() {
+        assertThatThrownBy(() -> new Product(null, null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void cancelIsIdempotent() {
+        Product product = new Product(new ProductName("Gold"), null);
+        product.cancel();
+
+        product.cancel();
+
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.CANCELADO);
     }
 
     @Test
     void activateTurnsCancelledProductActive() {
-        Product product = new Product("Gold", null);
+        Product product = new Product(new ProductName("Gold"), null);
         product.cancel();
 
         product.activate();
@@ -53,7 +55,7 @@ class ProductTest {
 
     @Test
     void activateRejectsActiveProduct() {
-        Product product = new Product("Gold", null);
+        Product product = new Product(new ProductName("Gold"), null);
 
         assertThatThrownBy(product::activate).isInstanceOf(ProductAlreadyActiveException.class);
     }
