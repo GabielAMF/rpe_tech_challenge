@@ -6,7 +6,6 @@ x-app-env: &app-env
   DB_NAME: ${DB_NAME:-rpe}
   DB_USER: ${DB_USER:-app}
   DB_PASSWORD: ${DB_PASSWORD:-app}
-  REDIS_HOST: redis
   AWS_REGION: ${AWS_REGION:-us-east-1}
   AWS_SQS_ENDPOINT: http://localstack:4566
   CLIENT_MANAGER_QUEUE: ${CLIENT_MANAGER_QUEUE:-rpe-client-manager-queue}
@@ -14,8 +13,6 @@ x-app-env: &app-env
 
 x-infra-deps: &infra-deps
   postgres:
-    condition: service_healthy
-  redis:
     condition: service_healthy
   wiremock:
     condition: service_started
@@ -134,8 +131,12 @@ services:
     environment:
       <<: *app-env
       SERVER_PORT: 8083
+      # Only the card processor caches.
+      REDIS_HOST: redis
     depends_on:
       <<: *infra-deps
+      redis:
+        condition: service_healthy
       localstack:
         condition: service_healthy
 

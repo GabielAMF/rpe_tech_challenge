@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code when working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project
 
@@ -22,14 +22,22 @@ sharing one local infrastructure stack defined in the root `docker-compose.yml`.
 Package layout per service: `config`, `controller`, `service`, `repository`, `domain`, `client`
 (Feign clients), `messaging` (SQS; not in catalog). Empty folders hold a `.gitkeep`.
 
-Which service calls which over HTTP is not defined yet — ask before wiring it.
+Which service calls which over HTTP is not defined yet — ask before wiring it (known so far:
+rpe_card_processor will read products from rpe_catalog).
+
+### rpe_catalog
+
+CRUD for card products at `/api/v1/products` (`GET/PUT/DELETE /{id}`, `POST`). `ProductResponse` is the
+contract rpe_card_processor will consume. `DELETE` is a soft delete (status → `CANCELADO`). Entities
+extend `domain/AuditableEntity` (`created_at`/`updated_at` via Spring Data JPA auditing). Ids are UUIDs.
+Product names are stored trimmed + upper-cased (`Product.normalizeName`) and are unique.
 
 ## Requirements the services must cover
 
 - Expose REST APIs and call other applications (Spring Cloud OpenFeign; external APIs stubbed by WireMock).
 - Publish to / listen on SQS (Spring Cloud AWS 3.4.x, LocalStack locally).
 - Persist to PostgreSQL (Spring Data JPA, `ddl-auto: validate`, schema managed by Flyway).
-- Cache with Redis (`@EnableCaching`, `spring.cache.type=redis`, key prefix per service).
+- Cache with Redis — **rpe_card_processor only** (`@EnableCaching`, `spring.cache.type=redis`, key prefix per service).
 
 ## Infrastructure (`docker-compose.yml`)
 
@@ -51,7 +59,19 @@ Which service calls which over HTTP is not defined yet — ask before wiring it.
 All services use the same `rpe` database. Each has its own Flyway history table
 (`flyway_history_catalog`, `flyway_history_client_manager`, `flyway_history_card_processor`) with
 `baseline-on-migrate: true` / `baseline-version: 0`, so migrations from different services don't collide.
-Migrations go in each service's `src/main/resources/db/migration`.
+Migrations go in each service's `src/main/resources/db/migration`, starting at `V1__...`.
+Because the tables share one schema, table names must not clash across services.
+
+### Cross-cutting config conventions
+
+- The three `application.yml` files are near-identical copies (only card_processor has the Redis/cache
+  block; catalog also lacks `spring.cloud.aws` and `app.sqs`). A shared-config change must be applied to all three by hand.
+- Feign base URLs go under `integrations.<name>.base-url` (currently `integrations.external-api.base-url`,
+  env `EXTERNAL_API_BASE_URL`). WireMock is `localhost:8081` from the host but `wiremock:8080` inside compose.
+- The queue name is injected from `app.sqs.client-manager-queue`. Adding a new queue means updating the
+  LocalStack init script, the `x-app-env` anchor, and the `application.yml` of both sides.
+- Lombok is available (annotation processor configured); `wiremock-spring-boot` is a test dependency for
+  stubbing Feign calls in tests.
 
 ## Commands
 
@@ -62,7 +82,12 @@ docker compose down -v                     # reset (drops the postgres volume)
 
 cd rpe_<service> && ./mvnw spring-boot:run # run one service locally
 cd rpe_<service> && ./mvnw test            # the contextLoads test needs the infra running
+cd rpe_<service> && ./mvnw test -Dtest=ClassName#method   # single test
+cd rpe_<service> && ./mvnw -B package -DskipTests         # build the jar (same as the Dockerfile)
 ```
+
+The `@SpringBootTest` context-load tests connect to the real Postgres (plus Redis/LocalStack for the
+services that use them), so run `docker compose up -d` first.
 
 All configuration in `application.yml` reads environment variables with localhost defaults.
 
