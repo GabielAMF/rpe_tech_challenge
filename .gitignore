@@ -11,3 +11,6 @@ target/
 
 # Env
 .env
+
+# Local to-do list (not versioned)
+/TODO.md
