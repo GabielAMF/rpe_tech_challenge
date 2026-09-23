@@ -58,6 +58,17 @@ enforced with URL rules in `SecurityConfig`, **not** `@PreAuthorize` (an `Access
 controller would hit `GlobalExceptionHandler`'s catch-all and become a 500). 401/403 are written by
 `SecurityProblemHandler` in the same ProblemDetail shape. Never log passwords or tokens.
 
+Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}`, `POST`, `POST /{id}/activate`.
+- `Cpf` value object: formatting stripped, upper-cased, exactly 11 letters/digits (alphanumeric CPF is expected;
+  check digits deliberately not validated yet). Unique and immutable (`updatable = false`, not in the PUT DTO).
+- Status: `DELETE` → CANCELADO (idempotent); `activate` → ATIVO from BLOQUEADO/CANCELADO (422 if already
+  ATIVO); `PUT` may only set `status` to BLOQUEADO (or repeat the current one). CANCELADO is not final because
+  a CPF can never be reused: creating with a cancelled customer's CPF → 409 `CANCELLED_CUSTOMER_EXISTS`.
+- `BirthDatePolicy`: birth date must be in the past; `app.customer.minimum-age` exists but defaults to 0
+  (disabled) until the real rule is confirmed.
+- Personal data: logs only carry the customer id and `Cpf.masked()` (`Cpf.toString()` is masked too). Never log
+  names, birth dates, full CPFs or raw database constraint messages (they contain the duplicated value).
+
 ## Requirements the services must cover
 
 - Expose REST APIs and call other applications (Spring Cloud OpenFeign; external APIs stubbed by WireMock).

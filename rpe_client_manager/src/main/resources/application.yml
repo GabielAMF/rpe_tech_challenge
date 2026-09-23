@@ -45,6 +45,10 @@ integrations:
     base-url: ${EXTERNAL_API_BASE_URL:http://localhost:8081}
 
 app:
+  customer:
+    # Minimum age to register a customer. 0 disables the check: the rule is implemented and tested, but the
+    # actual minimum age varies (product, regulation) and isn't confirmed yet, so it is not enforced.
+    minimum-age: ${CUSTOMER_MINIMUM_AGE:0}
   security:
     jwt:
       # HS256 signing key, at least 32 bytes. The default is for local development only:

@@ -117,6 +117,16 @@ BCrypt password hashes in its database. An external identity provider (e.g. Keyc
 production-like but adds a whole extra service; a single shared secret is enough while only this service
 validates tokens. Tokens are stateless and last 1 hour (`JWT_EXPIRATION`), so there is no logout or revocation.
 
+### Customers: CPF, status and personal data
+
+- **CPF** is stored as 11 letters/digits without formatting. Letters are allowed because the CPF is expected to
+  become alphanumeric, so check digits aren't validated until those rules exist. It is unique and can't change.
+- **Status**: `DELETE` cancels, `POST /{id}/activate` reactivates, and `PUT` can only block. A cancelled customer
+  can come back (its CPF can never be reused), so creating one with a cancelled customer's CPF points to activate.
+- **Minimum age** is implemented but disabled (`CUSTOMER_MINIMUM_AGE=0`): it was considered, but the real value
+  depends on the product and regulation and isn't confirmed yet.
+- **Personal data** never reaches the logs: only the customer id and a masked CPF (`***.***.***-09`).
+
 ### Independent services, one database
 
 Each service is its own Maven project (no parent pom) so it can be built, versioned and deployed alone. They

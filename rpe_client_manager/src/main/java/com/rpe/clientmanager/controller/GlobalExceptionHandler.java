@@ -39,10 +39,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    // Two concurrent requests with the same name can both pass the service check; the unique index catches it.
+    // Two concurrent requests can both pass a service-level uniqueness check; the unique index catches it.
+    // The database message is not logged: it contains the duplicated value (e.g. a full CPF).
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        log.warn("Data integrity violation ({})", ex.getMostSpecificCause().getClass().getSimpleName());
         return problem(ErrorCode.DATA_CONFLICT, "The request conflicts with existing data");
     }
 
