@@ -6,6 +6,7 @@ import com.rpe.catalog.controller.dto.UpdateProductRequest;
 import com.rpe.catalog.domain.Product;
 import com.rpe.catalog.domain.ProductStatus;
 import com.rpe.catalog.repository.ProductRepository;
+import com.rpe.catalog.service.exception.CancelledProductExistsException;
 import com.rpe.catalog.service.exception.DuplicateProductNameException;
 import com.rpe.catalog.service.exception.ProductNotFoundException;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -37,7 +39,7 @@ class ProductServiceTest {
 
     @Test
     void createSavesNewProductAsAtivoWithNormalizedName() {
-        when(productRepository.existsByName("BLACK CARD")).thenReturn(false);
+        when(productRepository.findByName("BLACK CARD")).thenReturn(Optional.empty());
         when(productRepository.saveAndFlush(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ProductResponse response = productService.create(new CreateProductRequest("  Black Card ", "Gold card"));
@@ -48,11 +50,23 @@ class ProductServiceTest {
     }
 
     @Test
-    void createRejectsDuplicateName() {
-        when(productRepository.existsByName("GOLD")).thenReturn(true);
+    void createRejectsNameOfActiveProduct() {
+        when(productRepository.findByName("GOLD")).thenReturn(Optional.of(productWithId(UUID.randomUUID(), "Gold")));
 
         assertThatThrownBy(() -> productService.create(new CreateProductRequest(" gold", null)))
                 .isInstanceOf(DuplicateProductNameException.class);
+        verify(productRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void createRejectsNameOfCancelledProduct() {
+        Product cancelled = productWithId(UUID.randomUUID(), "Gold");
+        cancelled.cancel();
+        when(productRepository.findByName("GOLD")).thenReturn(Optional.of(cancelled));
+
+        assertThatThrownBy(() -> productService.create(new CreateProductRequest("Gold", null)))
+                .isInstanceOf(CancelledProductExistsException.class)
+                .hasMessageContaining("cancelled");
         verify(productRepository, never()).saveAndFlush(any());
     }
 
@@ -68,7 +82,7 @@ class ProductServiceTest {
     void updateChangesAllFields() {
         Product product = new Product("Gold", "Old description");
         when(productRepository.findById(id)).thenReturn(Optional.of(product));
-        when(productRepository.existsByNameAndIdNot("PLATINUM", id)).thenReturn(false);
+        when(productRepository.findByName("PLATINUM")).thenReturn(Optional.empty());
 
         ProductResponse response = productService.update(id,
                 new UpdateProductRequest("Platinum", "New description", ProductStatus.CANCELADO));
@@ -79,13 +93,38 @@ class ProductServiceTest {
     }
 
     @Test
-    void updateRejectsNameUsedByAnotherProduct() {
-        when(productRepository.findById(id)).thenReturn(Optional.of(new Product("Gold", null)));
-        when(productRepository.existsByNameAndIdNot("PLATINUM", id)).thenReturn(true);
+    void updateKeepsItsOwnName() {
+        Product product = productWithId(id, "Gold");
+        when(productRepository.findById(id)).thenReturn(Optional.of(product));
+        when(productRepository.findByName("GOLD")).thenReturn(Optional.of(product));
+
+        ProductResponse response = productService.update(id,
+                new UpdateProductRequest("gold", "New description", ProductStatus.ATIVO));
+
+        assertThat(response.description()).isEqualTo("New description");
+    }
+
+    @Test
+    void updateRejectsNameOfAnotherActiveProduct() {
+        when(productRepository.findById(id)).thenReturn(Optional.of(productWithId(id, "Gold")));
+        when(productRepository.findByName("PLATINUM"))
+                .thenReturn(Optional.of(productWithId(UUID.randomUUID(), "Platinum")));
 
         assertThatThrownBy(() -> productService.update(id,
                 new UpdateProductRequest("Platinum", null, ProductStatus.ATIVO)))
                 .isInstanceOf(DuplicateProductNameException.class);
+    }
+
+    @Test
+    void updateRejectsNameOfAnotherCancelledProduct() {
+        Product cancelled = productWithId(UUID.randomUUID(), "Platinum");
+        cancelled.cancel();
+        when(productRepository.findById(id)).thenReturn(Optional.of(productWithId(id, "Gold")));
+        when(productRepository.findByName("PLATINUM")).thenReturn(Optional.of(cancelled));
+
+        assertThatThrownBy(() -> productService.update(id,
+                new UpdateProductRequest("Platinum", null, ProductStatus.ATIVO)))
+                .isInstanceOf(CancelledProductExistsException.class);
     }
 
     @Test
@@ -96,5 +135,11 @@ class ProductServiceTest {
         productService.cancel(id);
 
         assertThat(product.getStatus()).isEqualTo(ProductStatus.CANCELADO);
+    }
+
+    private static Product productWithId(UUID id, String name) {
+        Product product = new Product(name, null);
+        ReflectionTestUtils.setField(product, "id", id);
+        return product;
     }
 }

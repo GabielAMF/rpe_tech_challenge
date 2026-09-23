@@ -1,5 +1,6 @@
 package com.rpe.catalog.controller;
 
+import com.rpe.catalog.service.exception.CancelledProductExistsException;
 import com.rpe.catalog.service.exception.DuplicateProductNameException;
 import com.rpe.catalog.service.exception.ProductNotFoundException;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleDuplicateName(DuplicateProductNameException ex) {
         log.warn(ex.getMessage());
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(CancelledProductExistsException.class)
+    public ProblemDetail handleCancelledProductExists(CancelledProductExistsException ex) {
+        log.warn("Create rejected: product id={} with the same name is cancelled", ex.getProductId());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setProperty("productId", ex.getProductId());
+        return problem;
     }
 
     // Two concurrent requests with the same name can both pass the service check; the unique index catches it.

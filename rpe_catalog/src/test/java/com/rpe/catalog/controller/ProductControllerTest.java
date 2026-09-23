@@ -4,6 +4,7 @@ import com.rpe.catalog.controller.dto.CreateProductRequest;
 import com.rpe.catalog.controller.dto.ProductResponse;
 import com.rpe.catalog.domain.ProductStatus;
 import com.rpe.catalog.service.ProductService;
+import com.rpe.catalog.service.exception.CancelledProductExistsException;
 import com.rpe.catalog.service.exception.DuplicateProductNameException;
 import com.rpe.catalog.service.exception.ProductNotFoundException;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -105,6 +107,21 @@ class ProductControllerTest {
                                 {"name": "Gold"}
                                 """))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void postReturns409WithProductIdWhenNameBelongsToCancelledProduct() throws Exception {
+        when(productService.create(any(CreateProductRequest.class)))
+                .thenThrow(new CancelledProductExistsException(ID, "GOLD"));
+
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name": "Gold"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.productId").value(ID.toString()))
+                .andExpect(jsonPath("$.detail").value(containsString("cancelled")));
     }
 
     @Test

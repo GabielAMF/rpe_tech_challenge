@@ -4,7 +4,9 @@ import com.rpe.catalog.controller.dto.CreateProductRequest;
 import com.rpe.catalog.controller.dto.ProductResponse;
 import com.rpe.catalog.controller.dto.UpdateProductRequest;
 import com.rpe.catalog.domain.Product;
+import com.rpe.catalog.domain.ProductStatus;
 import com.rpe.catalog.repository.ProductRepository;
+import com.rpe.catalog.service.exception.CancelledProductExistsException;
 import com.rpe.catalog.service.exception.DuplicateProductNameException;
 import com.rpe.catalog.service.exception.ProductNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +32,7 @@ public class ProductService {
     @Transactional
     public ProductResponse create(CreateProductRequest request) {
         String name = Product.normalizeName(request.name());
-        if (productRepository.existsByName(name)) {
-            throw new DuplicateProductNameException(name);
-        }
+        ensureNameAvailable(name, null);
         // saveAndFlush so the audit timestamps are in the response.
         Product product = productRepository.saveAndFlush(new Product(name, request.description()));
         log.info("Created product id={} name='{}'", product.getId(), product.getName());
@@ -43,9 +43,7 @@ public class ProductService {
     public ProductResponse update(UUID id, UpdateProductRequest request) {
         Product product = getProduct(id);
         String name = Product.normalizeName(request.name());
-        if (productRepository.existsByNameAndIdNot(name, id)) {
-            throw new DuplicateProductNameException(name);
-        }
+        ensureNameAvailable(name, id);
         product.update(name, request.description(), request.status());
         productRepository.flush();
         log.info("Updated product id={} name='{}' status={}", id, product.getName(), product.getStatus());
@@ -61,6 +59,21 @@ public class ProductService {
         Product product = getProduct(id);
         product.cancel();
         log.info("Cancelled product id={}", id);
+    }
+
+    /**
+     * Rejects a name already used by another product. A cancelled owner gets its own exception so the
+     * caller knows to reactivate that product. {@code currentId} is the product being updated (null on create).
+     */
+    private void ensureNameAvailable(String name, UUID currentId) {
+        productRepository.findByName(name)
+                .filter(existing -> currentId == null || !currentId.equals(existing.getId()))
+                .ifPresent(existing -> {
+                    if (existing.getStatus() == ProductStatus.CANCELADO) {
+                        throw new CancelledProductExistsException(existing.getId(), name);
+                    }
+                    throw new DuplicateProductNameException(name);
+                });
     }
 
     private Product getProduct(UUID id) {
