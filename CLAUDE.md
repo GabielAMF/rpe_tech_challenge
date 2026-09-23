@@ -27,8 +27,9 @@ rpe_card_processor will read products from rpe_catalog).
 
 ### rpe_catalog
 
-CRUD for card products at `/api/v1/products` (`GET/PUT/DELETE /{id}`, `POST`). `ProductResponse` is the
-contract rpe_card_processor will consume. `DELETE` is a soft delete (status → `CANCELADO`). Entities
+CRUD for card products at `/api/v1/products` (`GET/PUT/DELETE /{id}`, `POST`, `POST /{id}/activate`).
+`ProductResponse` is the contract rpe_card_processor will consume. Status only changes through `DELETE`
+(soft delete → `CANCELADO`, idempotent) and `activate` (→ `ATIVO`; 422 if already active); `PUT` never touches it. Entities
 extend `domain/AuditableEntity` (`created_at`/`updated_at` via Spring Data JPA auditing). Ids are UUIDs.
 Product names are stored trimmed + upper-cased (`Product.normalizeName`, which rejects names empty after
 trim) and are unique.

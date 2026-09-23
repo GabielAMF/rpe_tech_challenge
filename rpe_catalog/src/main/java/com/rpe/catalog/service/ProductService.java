@@ -44,9 +44,9 @@ public class ProductService {
         Product product = getProduct(id);
         String name = Product.normalizeName(request.name());
         ensureNameAvailable(name, id);
-        product.update(name, request.description(), request.status());
+        product.update(name, request.description());
         productRepository.flush();
-        log.info("Updated product id={} name='{}' status={}", id, product.getName(), product.getStatus());
+        log.info("Updated product id={} name='{}'", id, product.getName());
         return ProductResponse.from(product);
     }
 
@@ -59,6 +59,17 @@ public class ProductService {
         Product product = getProduct(id);
         product.cancel();
         log.info("Cancelled product id={}", id);
+    }
+
+    /** Reactivates a cancelled product. Throws ProductAlreadyActiveException (422) if it is already ATIVO. */
+    @Transactional
+    public ProductResponse activate(UUID id) {
+        Product product = getProduct(id);
+        product.activate();
+        // flush so updatedAt in the response is the one stored.
+        productRepository.flush();
+        log.info("Activated product id={}", id);
+        return ProductResponse.from(product);
     }
 
     /**

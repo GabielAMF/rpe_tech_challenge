@@ -61,7 +61,9 @@ Every entity uses a random UUID as its primary key, and that same value is the i
 ### Soft delete
 
 `DELETE` marks a product `CANCELADO` instead of removing the row. The audit history stays intact and other
-services that reference the product don't end up pointing at a missing record.
+services that reference the product don't end up pointing at a missing record. A cancelled product is brought
+back with `POST /api/v1/products/{id}/activate`; status never changes through `PUT`, so each status change is
+an explicit action.
 
 ### Normalized product names
 

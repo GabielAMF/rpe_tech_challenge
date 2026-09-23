@@ -2,10 +2,12 @@ package com.rpe.catalog.controller;
 
 import com.rpe.catalog.controller.dto.CreateProductRequest;
 import com.rpe.catalog.controller.dto.ProductResponse;
+import com.rpe.catalog.controller.dto.UpdateProductRequest;
 import com.rpe.catalog.domain.ProductStatus;
 import com.rpe.catalog.exception.CancelledProductExistsException;
 import com.rpe.catalog.exception.DuplicateProductNameException;
 import com.rpe.catalog.exception.InvalidProductNameException;
+import com.rpe.catalog.exception.ProductAlreadyActiveException;
 import com.rpe.catalog.exception.ProductNotFoundException;
 import com.rpe.catalog.service.ProductService;
 import org.junit.jupiter.api.Test;
@@ -172,13 +174,47 @@ class ProductControllerTest {
     }
 
     @Test
-    void putRejectsUnknownStatus() throws Exception {
+    void putIgnoresStatusField() throws Exception {
+        when(productService.update(ID, new UpdateProductRequest("Gold", null)))
+                .thenReturn(new ProductResponse(ID, "GOLD", null, ProductStatus.ATIVO, NOW, NOW));
+
         mockMvc.perform(put("/api/v1/products/{id}", ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name": "Gold", "status": "SUSPENSO"}
+                                {"name": "Gold", "status": "CANCELADO"}
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ATIVO"));
+
+        verify(productService).update(ID, new UpdateProductRequest("Gold", null));
+    }
+
+    @Test
+    void activateReturnsActivatedProduct() throws Exception {
+        when(productService.activate(ID))
+                .thenReturn(new ProductResponse(ID, "GOLD", null, ProductStatus.ATIVO, NOW, NOW));
+
+        mockMvc.perform(post("/api/v1/products/{id}/activate", ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ATIVO"));
+    }
+
+    @Test
+    void activateReturns422WhenAlreadyActive() throws Exception {
+        when(productService.activate(ID)).thenThrow(new ProductAlreadyActiveException(ID));
+
+        mockMvc.perform(post("/api/v1/products/{id}/activate", ID))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PRODUCT_ALREADY_ACTIVE"))
+                .andExpect(jsonPath("$.detail").value("Product " + ID + " is already active"));
+    }
+
+    @Test
+    void activateReturns404WhenMissing() throws Exception {
+        when(productService.activate(ID)).thenThrow(new ProductNotFoundException(ID));
+
+        mockMvc.perform(post("/api/v1/products/{id}/activate", ID))
+                .andExpect(status().isNotFound());
     }
 
     @Test

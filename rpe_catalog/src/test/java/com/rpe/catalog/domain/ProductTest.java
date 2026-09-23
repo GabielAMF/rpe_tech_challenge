@@ -1,6 +1,7 @@
 package com.rpe.catalog.domain;
 
 import com.rpe.catalog.exception.InvalidProductNameException;
+import com.rpe.catalog.exception.ProductAlreadyActiveException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
@@ -34,9 +35,26 @@ class ProductTest {
     void updateRejectsBlankNameAndKeepsOldValues() {
         Product product = new Product("Gold", "Gold card");
 
-        assertThatThrownBy(() -> product.update(" ", "New", ProductStatus.CANCELADO))
+        assertThatThrownBy(() -> product.update(" ", "New"))
                 .isInstanceOf(InvalidProductNameException.class);
         assertThat(product.getName()).isEqualTo("GOLD");
+        assertThat(product.getDescription()).isEqualTo("Gold card");
+    }
+
+    @Test
+    void activateTurnsCancelledProductActive() {
+        Product product = new Product("Gold", null);
+        product.cancel();
+
+        product.activate();
+
         assertThat(product.getStatus()).isEqualTo(ProductStatus.ATIVO);
+    }
+
+    @Test
+    void activateRejectsActiveProduct() {
+        Product product = new Product("Gold", null);
+
+        assertThatThrownBy(product::activate).isInstanceOf(ProductAlreadyActiveException.class);
     }
 }

@@ -16,6 +16,7 @@ public enum ErrorCode {
     PRODUCT_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT),
     CANCELLED_PRODUCT_EXISTS(HttpStatus.CONFLICT),
     INVALID_PRODUCT_NAME(HttpStatus.BAD_REQUEST),
+    PRODUCT_ALREADY_ACTIVE(HttpStatus.UNPROCESSABLE_ENTITY),
 
     // Raised by the handler itself, not by a CustomException.
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST),

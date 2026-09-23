@@ -47,6 +47,11 @@ public class ProductController {
         return productService.update(id, request);
     }
 
+    @PostMapping("/{id}/activate")
+    public ProductResponse activate(@PathVariable UUID id) {
+        return productService.activate(id);
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         productService.cancel(id);
