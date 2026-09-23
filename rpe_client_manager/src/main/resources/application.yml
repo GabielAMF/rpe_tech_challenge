@@ -45,6 +45,17 @@ integrations:
     base-url: ${EXTERNAL_API_BASE_URL:http://localhost:8081}
 
 app:
+  security:
+    jwt:
+      # HS256 signing key, at least 32 bytes. The default is for local development only:
+      # always set JWT_SECRET anywhere else.
+      secret: ${JWT_SECRET:local-dev-only-secret-change-me-0123456789}
+      expiration: ${JWT_EXPIRATION:1h}
+      issuer: rpe-client-manager
+    # Created on startup (as ADMIN) if no user with this username exists. Leave the username empty to skip.
+    bootstrap-user:
+      username: ${AUTH_BOOTSTRAP_USERNAME:admin}
+      password: ${AUTH_BOOTSTRAP_PASSWORD:admin12345}
   sqs:
     # Published by rpe_client_manager, consumed by rpe_card_processor.
     client-manager-queue: ${CLIENT_MANAGER_QUEUE:rpe-client-manager-queue}
