@@ -83,3 +83,9 @@ their migrations stay independent.
 
 Only rpe_card_processor uses the Redis cache. rpe_catalog and
 rpe_client_manager don't depend on Redis at all, so they start without it.
+
+### Feign and WireMock only in services that call others
+
+rpe_catalog only receives requests and never calls another service, so it has no Feign client and no WireMock
+dependency, and it starts with just PostgreSQL. Services that do call others (e.g. rpe_card_processor reading
+products from rpe_catalog) use Feign, and WireMock stubs those APIs in their tests and locally.

@@ -106,7 +106,10 @@ services:
     environment:
       <<: *app-env
       SERVER_PORT: 8080
-    depends_on: *infra-deps
+    # The catalog calls no other service, so it only needs the database.
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   rpe-client-manager:
     profiles: ["apps"]

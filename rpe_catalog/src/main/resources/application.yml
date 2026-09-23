@@ -29,11 +29,6 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
 
-# Base URLs of the external services we call. Locally they all point to WireMock.
-integrations:
-  external-api:
-    base-url: ${EXTERNAL_API_BASE_URL:http://localhost:8081}
-
 management:
   endpoints:
     web:
