@@ -1,5 +1,6 @@
 package com.rpe.catalog.domain;
 
+import com.rpe.catalog.exception.InvalidProductNameException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -47,9 +48,16 @@ public class Product extends AuditableEntity {
         this.status = status;
     }
 
-    /** Product names are stored trimmed and upper-cased, so " gold " and "GOLD" are the same product. */
+    /**
+     * Product names are stored trimmed and upper-cased, so " gold " and "GOLD" are the same product.
+     * A name that is null or empty after trimming is rejected.
+     */
     public static String normalizeName(String name) {
-        return name.trim().toUpperCase(Locale.ROOT);
+        String trimmed = name == null ? "" : name.trim();
+        if (trimmed.isEmpty()) {
+            throw new InvalidProductNameException();
+        }
+        return trimmed.toUpperCase(Locale.ROOT);
     }
 
     public void cancel() {

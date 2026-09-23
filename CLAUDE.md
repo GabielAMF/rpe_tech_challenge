@@ -20,7 +20,7 @@ sharing one local infrastructure stack defined in the root `docker-compose.yml`.
 | `rpe_card_processor/` | `rpe-card-processor` | `com.rpe.cardprocessor` | 8083 | consumes `rpe-client-manager-queue`     |
 
 Package layout per service: `config`, `controller`, `service`, `repository`, `domain`, `client`
-(Feign clients), `messaging` (SQS; not in catalog). Empty folders hold a `.gitkeep`.
+(Feign clients), `messaging` (SQS; not in catalog), `exception` (catalog so far). Empty folders hold a `.gitkeep`.
 
 Which service calls which over HTTP is not defined yet — ask before wiring it (known so far:
 rpe_card_processor will read products from rpe_catalog).
@@ -30,7 +30,13 @@ rpe_card_processor will read products from rpe_catalog).
 CRUD for card products at `/api/v1/products` (`GET/PUT/DELETE /{id}`, `POST`). `ProductResponse` is the
 contract rpe_card_processor will consume. `DELETE` is a soft delete (status → `CANCELADO`). Entities
 extend `domain/AuditableEntity` (`created_at`/`updated_at` via Spring Data JPA auditing). Ids are UUIDs.
-Product names are stored trimmed + upper-cased (`Product.normalizeName`) and are unique.
+Product names are stored trimmed + upper-cased (`Product.normalizeName`, which rejects names empty after
+trim) and are unique.
+
+Errors: every intentional exception extends `exception/CustomException` and carries an `ErrorCode` (which holds
+the HTTP status); business-rule violations extend `BusinessRuleException`. `GlobalExceptionHandler` renders
+all errors — including Spring's own — as ProblemDetail with extra `code` and `timestamp` fields. To add an
+error: add an `ErrorCode` constant and a `CustomException` subclass; no handler change needed.
 
 ## Requirements the services must cover
 
