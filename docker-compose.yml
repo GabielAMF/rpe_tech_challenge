@@ -120,6 +120,8 @@ services:
     environment:
       <<: *app-env
       SERVER_PORT: 8082
+      # rpe-card-processor isn't implemented yet: its API is stubbed by WireMock.
+      CARD_PROCESSOR_BASE_URL: http://wiremock:8080
     depends_on:
       <<: *infra-deps
       localstack:

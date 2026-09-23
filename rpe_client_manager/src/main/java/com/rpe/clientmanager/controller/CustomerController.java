@@ -1,6 +1,7 @@
 package com.rpe.clientmanager.controller;
 
 import com.rpe.clientmanager.controller.dto.CreateCustomerRequest;
+import com.rpe.clientmanager.controller.dto.CustomerDetailsResponse;
 import com.rpe.clientmanager.controller.dto.CustomerResponse;
 import com.rpe.clientmanager.controller.dto.UpdateCustomerRequest;
 import com.rpe.clientmanager.domain.Cpf;
@@ -31,14 +32,16 @@ public class CustomerController {
     private final CustomerService customerService;
     private final CustomerMapper customerMapper;
 
+    /** The customer with its card and product (from rpe_card_processor, best effort). */
     @GetMapping("/{id}")
-    public CustomerResponse findById(@PathVariable UUID id) {
-        return customerMapper.toResponse(customerService.findById(id));
+    public CustomerDetailsResponse findById(@PathVariable UUID id) {
+        return customerMapper.toDetailsResponse(customerService.getDetails(id));
     }
 
     @PostMapping
     public ResponseEntity<CustomerResponse> create(@Valid @RequestBody CreateCustomerRequest request) {
-        Customer created = customerService.create(request.name(), new Cpf(request.cpf()), request.birthDate());
+        Customer created = customerService.create(
+                request.name(), new Cpf(request.cpf()), request.birthDate(), request.creditInfo());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(created.getId())

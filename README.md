@@ -127,6 +127,21 @@ validates tokens. Tokens are stateless and last 1 hour (`JWT_EXPIRATION`), so th
   depends on the product and regulation and isn't confirmed yet.
 - **Personal data** never reaches the logs: only the customer id and a masked CPF (`***.***.***-09`).
 
+### Card production (client-manager → SQS → card-processor)
+
+Creating a customer publishes a `CARD_PRODUCTION_REQUESTED` message to `rpe-client-manager-queue` with the
+customer id, name, CPF and the request's `credit_info`, so rpe-card-processor has what it needs without calling
+back. `credit_info` is only forwarded, never stored. `GET /customers/{id}` returns the customer plus its card and
+product from rpe-card-processor (stubbed by WireMock until it exists). If that service is down the customer is
+still returned, with `"card": null` and `"cardInfoAvailable": false`.
+
+> **Temporary solution, to be improved for the final product.** The message is sent inside the creation
+> transaction: if SQS fails, the customer is not saved and the API answers **503** (retry is safe). This keeps the
+> first version functional, but it can still send a message for a customer whose commit then fails, or lose a
+> send that times out but arrives later. The intended fix is a **transactional outbox**: the event is saved with
+> the customer in the same transaction and a relay publishes it with retries, removing the 503. It's marked
+> `TODO(outbox)` in `SqsCardProductionPublisher`.
+
 ### Independent services, one database
 
 Each service is its own Maven project (no parent pom) so it can be built, versioned and deployed alone. They

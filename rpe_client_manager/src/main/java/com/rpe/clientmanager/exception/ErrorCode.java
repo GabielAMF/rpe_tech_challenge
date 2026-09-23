@@ -25,6 +25,7 @@ public enum ErrorCode {
     CUSTOMER_ALREADY_ACTIVE(HttpStatus.UNPROCESSABLE_ENTITY),
     STATUS_CHANGE_NOT_ALLOWED(HttpStatus.UNPROCESSABLE_ENTITY),
     CUSTOMER_UNDERAGE(HttpStatus.UNPROCESSABLE_ENTITY),
+    CARD_PRODUCTION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE),
 
     // Raised by the security layer or the handler itself, not by a CustomException.
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED),

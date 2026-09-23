@@ -30,6 +30,13 @@ spring:
     baseline-version: 0
 
   cloud:
+    openfeign:
+      client:
+        config:
+          # Card info is optional in GET /customers/{id}: fail fast and answer without it.
+          card-processor:
+            connect-timeout: 1000
+            read-timeout: 2000
     aws:
       region:
         static: ${AWS_REGION:us-east-1}
@@ -39,10 +46,11 @@ spring:
       sqs:
         endpoint: ${AWS_SQS_ENDPOINT:http://localhost:4566}
 
-# Base URLs of the external services we call. Locally they all point to WireMock.
+# Base URLs of the services we call. rpe_card_processor isn't implemented yet, so it points to WireMock
+# (docker/wiremock/mappings); switch CARD_PROCESSOR_BASE_URL to the real service once it exists.
 integrations:
-  external-api:
-    base-url: ${EXTERNAL_API_BASE_URL:http://localhost:8081}
+  card-processor:
+    base-url: ${CARD_PROCESSOR_BASE_URL:http://localhost:8081}
 
 app:
   customer:
@@ -63,6 +71,8 @@ app:
   sqs:
     # Published by rpe_client_manager, consumed by rpe_card_processor.
     client-manager-queue: ${CLIENT_MANAGER_QUEUE:rpe-client-manager-queue}
+    # How long customer creation waits for SQS before answering 503.
+    send-timeout: ${SQS_SEND_TIMEOUT:5s}
 
 management:
   endpoints:

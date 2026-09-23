@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/v1/customers/[0-9a-fA-F-]{36}/card"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "cardId": "{{randomValue type='UUID'}}",
+      "status": "ISSUED",
+      "maskedNumber": "**** **** **** 1234",
+      "product": {
+        "id": "3f2b6c1e-8d4a-4f7b-9c2e-1a5d6e7f8a9b",
+        "name": "GOLD",
+        "description": "Gold card (WireMock stub)",
+        "status": "ATIVO"
+      },
+      "createdAt": "{{now}}"
+    },
+    "transformers": ["response-template"]
+  }
+}
