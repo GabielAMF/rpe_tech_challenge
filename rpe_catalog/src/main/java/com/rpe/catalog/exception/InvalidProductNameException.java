@@ -1,8 +1,8 @@
 package com.rpe.catalog.exception;
 
 /**
- * Thrown by the domain when a product name is null or empty after trimming. Normally the request
- * DTOs reject such names first; this guards every other path into {@code Product}.
+ * Thrown when building a {@code ProductName} that is null or empty after trimming. Normally the request
+ * DTOs reject such names first; this guards every other path into the domain.
  */
 public class InvalidProductNameException extends CustomException {
 

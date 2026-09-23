@@ -1,9 +1,6 @@
 package com.rpe.catalog.controller;
 
-import com.rpe.catalog.controller.dto.CreateProductRequest;
-import com.rpe.catalog.controller.dto.ProductResponse;
-import com.rpe.catalog.controller.dto.UpdateProductRequest;
-import com.rpe.catalog.domain.ProductStatus;
+import com.rpe.catalog.domain.ProductName;
 import com.rpe.catalog.exception.CancelledProductExistsException;
 import com.rpe.catalog.exception.DuplicateProductNameException;
 import com.rpe.catalog.exception.InvalidProductNameException;
@@ -13,16 +10,18 @@ import com.rpe.catalog.service.ProductService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Instant;
 import java.util.UUID;
 
+import static com.rpe.catalog.ProductFixtures.product;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,9 +34,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ProductController.class)
+@Import(ProductMapper.class)
 class ProductControllerTest {
 
-    private static final Instant NOW = Instant.parse("2026-09-23T12:00:00Z");
     private static final UUID ID = UUID.fromString("7f1c2a4e-5b3d-4e8f-9a6b-1c2d3e4f5a6b");
 
     @Autowired
@@ -48,8 +47,7 @@ class ProductControllerTest {
 
     @Test
     void getReturnsProduct() throws Exception {
-        when(productService.findById(ID))
-                .thenReturn(new ProductResponse(ID, "GOLD", "Gold card", ProductStatus.ATIVO, NOW, NOW));
+        when(productService.findById(ID)).thenReturn(product(ID, "Gold", "Gold card"));
 
         mockMvc.perform(get("/api/v1/products/{id}", ID))
                 .andExpect(status().isOk())
@@ -80,8 +78,7 @@ class ProductControllerTest {
 
     @Test
     void postCreatesProductAndReturnsLocation() throws Exception {
-        when(productService.create(any(CreateProductRequest.class)))
-                .thenReturn(new ProductResponse(ID, "PLATINUM", null, ProductStatus.ATIVO, NOW, NOW));
+        when(productService.create(new ProductName("Platinum"), null)).thenReturn(product(ID, "Platinum"));
 
         mockMvc.perform(post("/api/v1/products")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -90,7 +87,8 @@ class ProductControllerTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "http://localhost/api/v1/products/" + ID))
-                .andExpect(jsonPath("$.id").value(ID.toString()));
+                .andExpect(jsonPath("$.id").value(ID.toString()))
+                .andExpect(jsonPath("$.name").value("PLATINUM"));
     }
 
     @Test
@@ -107,7 +105,7 @@ class ProductControllerTest {
 
     @Test
     void postReturns409OnDuplicateName() throws Exception {
-        when(productService.create(any(CreateProductRequest.class)))
+        when(productService.create(any(ProductName.class), any()))
                 .thenThrow(new DuplicateProductNameException("Gold"));
 
         mockMvc.perform(post("/api/v1/products")
@@ -120,7 +118,7 @@ class ProductControllerTest {
 
     @Test
     void postReturns409WithProductIdWhenNameBelongsToCancelledProduct() throws Exception {
-        when(productService.create(any(CreateProductRequest.class)))
+        when(productService.create(any(ProductName.class), any()))
                 .thenThrow(new CancelledProductExistsException(ID, "GOLD"));
 
         mockMvc.perform(post("/api/v1/products")
@@ -136,7 +134,7 @@ class ProductControllerTest {
 
     @Test
     void postReturns409WithCodeOnDuplicateActiveName() throws Exception {
-        when(productService.create(any(CreateProductRequest.class)))
+        when(productService.create(any(ProductName.class), any()))
                 .thenThrow(new DuplicateProductNameException("GOLD"));
 
         mockMvc.perform(post("/api/v1/products")
@@ -151,10 +149,10 @@ class ProductControllerTest {
 
     @Test
     void invalidProductNameFromDomainReturns400() throws Exception {
-        when(productService.create(any(CreateProductRequest.class)))
+        when(productService.update(eq(ID), any(ProductName.class), any()))
                 .thenThrow(new InvalidProductNameException());
 
-        mockMvc.perform(post("/api/v1/products")
+        mockMvc.perform(put("/api/v1/products/{id}", ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "Gold"}
@@ -175,8 +173,7 @@ class ProductControllerTest {
 
     @Test
     void putIgnoresStatusField() throws Exception {
-        when(productService.update(ID, new UpdateProductRequest("Gold", null)))
-                .thenReturn(new ProductResponse(ID, "GOLD", null, ProductStatus.ATIVO, NOW, NOW));
+        when(productService.update(ID, new ProductName("Gold"), null)).thenReturn(product(ID, "Gold"));
 
         mockMvc.perform(put("/api/v1/products/{id}", ID)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -186,13 +183,12 @@ class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ATIVO"));
 
-        verify(productService).update(ID, new UpdateProductRequest("Gold", null));
+        verify(productService).update(ID, new ProductName("Gold"), null);
     }
 
     @Test
     void activateReturnsActivatedProduct() throws Exception {
-        when(productService.activate(ID))
-                .thenReturn(new ProductResponse(ID, "GOLD", null, ProductStatus.ATIVO, NOW, NOW));
+        when(productService.activate(ID)).thenReturn(product(ID, "Gold"));
 
         mockMvc.perform(post("/api/v1/products/{id}/activate", ID))
                 .andExpect(status().isOk())

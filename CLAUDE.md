@@ -31,8 +31,17 @@ CRUD for card products at `/api/v1/products` (`GET/PUT/DELETE /{id}`, `POST`, `P
 `ProductResponse` is the contract rpe_card_processor will consume. Status only changes through `DELETE`
 (soft delete → `CANCELADO`, idempotent) and `activate` (→ `ATIVO`; 422 if already active); `PUT` never touches it. Entities
 extend `domain/AuditableEntity` (`created_at`/`updated_at` via Spring Data JPA auditing). Ids are UUIDs.
-Product names are stored trimmed + upper-cased (`Product.normalizeName`, which rejects names empty after
-trim) and are unique.
+Product names are stored trimmed + upper-cased and are unique.
+
+Layering (keep dependencies pointing inward):
+- `controller` owns the HTTP contract: request/response DTOs, `ProductMapper` (entity → `ProductResponse`),
+  and building `ProductName` from requests. Nothing outside `controller` may import `controller.*`.
+- `service`: `ProductService` interface + `ProductServiceImpl`, working only with domain types. Business rules
+  that need the database live in their own components (`ProductNamePolicy`: uniqueness / cancelled-name rule).
+- `domain`: `Product` plus value objects (`ProductName` normalizes and rejects empty names). State
+  transitions (`cancel`, `activate`) and their rules live on the entity.
+- `repository`: `ProductRepository extends JpaRepository` (a conscious convention choice, see README).
+  Never call its delete methods — products are soft-deleted; only the service changes status.
 
 Errors: every intentional exception extends `exception/CustomException` and carries an `ErrorCode` (which holds
 the HTTP status); business-rule violations extend `BusinessRuleException`. `GlobalExceptionHandler` renders

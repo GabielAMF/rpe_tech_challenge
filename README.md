@@ -75,6 +75,27 @@ same product and can't be created twice.
 Every table gets `created_at` / `updated_at`, filled automatically by Spring Data JPA auditing through a shared
 base entity, so no service code has to remember to set them.
 
+### Code structure: layered, following SOLID
+
+We compared three options for the catalog: minimal fixes, a layered clean-up, and hexagonal architecture
+(one class per use case, ports and adapters). Hexagonal was overkill for five operations, and minimal fixes
+left too many SOLID issues, so we chose the layered clean-up:
+
+- **S** — each class has one job: `ProductName` (name rules), `ProductNamePolicy` (uniqueness rule),
+  `ProductMapper` (entity → response), `ProductServiceImpl` (use cases).
+- **O** — new errors only need an `ErrorCode` and a `CustomException` subclass; the handler doesn't change.
+- **I** — consciously relaxed for repositories to follow the `JpaRepository` convention (see below).
+- **D** — the controller depends on the `ProductService` interface, and the service works with domain types,
+  never the web DTOs.
+
+### Repositories: `JpaRepository` by convention
+
+Repositories extend `JpaRepository`, the usual Spring Data convention, even though it exposes hard-delete
+methods (`deleteById`, `deleteAll`, ...) that the soft-delete rule forbids. We considered extending the bare
+`Repository` interface and declaring only the methods used, which makes a hard delete impossible to compile,
+but chose familiarity: the rule is enforced by the service layer and code review, and documented on
+`ProductRepository`.
+
 ### Independent services, one database
 
 Each service is its own Maven project (no parent pom) so it can be built, versioned and deployed alone. They
