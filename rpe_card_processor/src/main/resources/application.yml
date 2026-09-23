@@ -1,0 +1,67 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: rpe-card-processor
+
+  # All services share the same database.
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:rpe}
+    username: ${DB_USER:app}
+    password: ${DB_PASSWORD:app}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  # Each service keeps its own migration history table, so migrations from
+  # different services don't collide in the shared database.
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    table: flyway_history_card_processor
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 10m
+      key-prefix: "rpe-card-processor::"
+
+  cloud:
+    aws:
+      region:
+        static: ${AWS_REGION:us-east-1}
+      credentials:
+        access-key: ${AWS_ACCESS_KEY_ID:test}
+        secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+      sqs:
+        endpoint: ${AWS_SQS_ENDPOINT:http://localhost:4566}
+
+# Base URLs of the external services we call. Locally they all point to WireMock.
+integrations:
+  external-api:
+    base-url: ${EXTERNAL_API_BASE_URL:http://localhost:8081}
+
+app:
+  sqs:
+    # Published by rpe_client_manager, consumed by rpe_card_processor.
+    client-manager-queue: ${CLIENT_MANAGER_QUEUE:rpe-client-manager-queue}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
