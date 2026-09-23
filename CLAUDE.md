@@ -68,6 +68,13 @@ Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}
   (disabled) until the real rule is confirmed.
 - Personal data: logs only carry the customer id and `Cpf.masked()` (`Cpf.toString()` is masked too). Never log
   names, birth dates, full CPFs or raw database constraint messages (they contain the duplicated value).
+- Card production: `create` publishes `CardProductionRequested` (plain JSON, no Java type header — see
+  `SqsConfig`) through the `CardProductionPublisher` interface, inside the transaction; a failed/timed-out send
+  (`app.sqs.send-timeout`) → 503 and rollback. The record is the message contract with rpe_card_processor;
+  its `toString()` hides personal data. `TODO(outbox)` marks the planned transactional outbox.
+- `GET /customers/{id}` → `CustomerService.getDetails` (not transactional: no DB transaction during HTTP) uses
+  `CardInfoGateway` → Feign `CardProcessorClient` (`integrations.card-processor.base-url`, WireMock for now;
+  1s connect / 2s read timeout). The gateway never throws: 404 → no card yet, any other failure → unavailable.
 
 ## Requirements the services must cover
 

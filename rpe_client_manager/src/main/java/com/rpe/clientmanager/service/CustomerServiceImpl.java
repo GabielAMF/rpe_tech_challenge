@@ -11,10 +11,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.UUID;
 
-/** Customer data is personal: logs carry the id and masked CPF only, never the name or birth date. */
+/**
+ * Customer data is personal: logs carry the id and masked CPF only, never the name, birth date or credit info.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -23,6 +26,9 @@ public class CustomerServiceImpl implements CustomerService {
     private final CustomerRepository customerRepository;
     private final CustomerCpfPolicy cpfPolicy;
     private final BirthDatePolicy birthDatePolicy;
+    private final CardProductionPublisher cardProductionPublisher;
+    private final CardInfoGateway cardInfoGateway;
+    private final Clock clock;
 
     @Override
     @Transactional(readOnly = true)
@@ -30,14 +36,23 @@ public class CustomerServiceImpl implements CustomerService {
         return getCustomer(id);
     }
 
+    /** Not transactional on purpose: the HTTP call to rpe_card_processor must not hold a database transaction. */
+    @Override
+    public CustomerDetails getDetails(UUID id) {
+        Customer customer = getCustomer(id);
+        return new CustomerDetails(customer, cardInfoGateway.findByCustomerId(id));
+    }
+
     @Override
     @Transactional
-    public Customer create(String name, Cpf cpf, LocalDate birthDate) {
+    public Customer create(String name, Cpf cpf, LocalDate birthDate, String creditInfo) {
         birthDatePolicy.validate(birthDate);
         cpfPolicy.ensureAvailable(cpf);
-        // saveAndFlush so the audit timestamps are set before the customer is returned.
+        // saveAndFlush so the id and audit timestamps exist before the event is built and the customer returned.
         Customer customer = customerRepository.saveAndFlush(new Customer(name, cpf, birthDate));
-        log.info("Created customer id={} cpf={}", customer.getId(), cpf.masked());
+        // Inside the transaction: if publishing throws, the customer is rolled back (see SqsCardProductionPublisher).
+        cardProductionPublisher.publish(CardProductionRequested.of(customer, creditInfo, clock.instant()));
+        log.info("Created customer id={} cpf={} and requested card production", customer.getId(), cpf.masked());
         return customer;
     }
 

@@ -8,15 +8,22 @@ import com.rpe.clientmanager.exception.DuplicateCpfException;
 import com.rpe.clientmanager.exception.InvalidBirthDateException;
 import com.rpe.clientmanager.exception.StatusChangeNotAllowedException;
 import com.rpe.clientmanager.repository.CustomerRepository;
+import com.rpe.clientmanager.exception.CardProductionUnavailableException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -47,8 +55,21 @@ class CustomerServiceImplTest {
     @Mock
     private BirthDatePolicy birthDatePolicy;
 
-    @InjectMocks
+    @Mock
+    private CardProductionPublisher cardProductionPublisher;
+
+    @Mock
+    private CardInfoGateway cardInfoGateway;
+
+    private static final Instant NOW = Instant.parse("2026-09-23T12:00:00Z");
+
     private CustomerServiceImpl customerService;
+
+    @BeforeEach
+    void setUp() {
+        customerService = new CustomerServiceImpl(customerRepository, cpfPolicy, birthDatePolicy,
+                cardProductionPublisher, cardInfoGateway, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
 
     private final UUID id = UUID.randomUUID();
 
@@ -63,7 +84,7 @@ class CustomerServiceImplTest {
     void createChecksRulesThenSavesAtivoCustomer() {
         when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Customer created = customerService.create("Maria", CPF, BIRTH_DATE);
+        Customer created = customerService.create("Maria", CPF, BIRTH_DATE, "score=780");
 
         verify(birthDatePolicy).validate(BIRTH_DATE);
         verify(cpfPolicy).ensureAvailable(CPF);
@@ -75,18 +96,74 @@ class CustomerServiceImplTest {
     void createDoesNotSaveWhenCpfIsTaken() {
         doThrow(new DuplicateCpfException(CPF)).when(cpfPolicy).ensureAvailable(CPF);
 
-        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE))
+        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE, "score=780"))
                 .isInstanceOf(DuplicateCpfException.class);
         verify(customerRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(cardProductionPublisher);
+    }
+
+    @Test
+    void createPublishesCardProductionRequestAfterSaving() {
+        UUID newId = UUID.randomUUID();
+        when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> {
+            Customer saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", newId);
+            return saved;
+        });
+
+        customerService.create("Maria Silva", CPF, BIRTH_DATE, "score=780");
+
+        InOrder order = inOrder(customerRepository, cardProductionPublisher);
+        order.verify(customerRepository).saveAndFlush(any(Customer.class));
+        ArgumentCaptor<CardProductionRequested> event = ArgumentCaptor.forClass(CardProductionRequested.class);
+        order.verify(cardProductionPublisher).publish(event.capture());
+        assertThat(event.getValue().eventId()).isNotNull();
+        assertThat(event.getValue().eventType()).isEqualTo("CARD_PRODUCTION_REQUESTED");
+        assertThat(event.getValue().occurredAt()).isEqualTo(NOW);
+        assertThat(event.getValue().customerId()).isEqualTo(newId);
+        assertThat(event.getValue().customerName()).isEqualTo("Maria Silva");
+        assertThat(event.getValue().cpf()).isEqualTo("12345678909");
+        assertThat(event.getValue().creditInfo()).isEqualTo("score=780");
+    }
+
+    @Test
+    void createFailsWhenCardProductionCantBePublishedSoTheTransactionRollsBack() {
+        when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new CardProductionUnavailableException(new RuntimeException("sqs down")))
+                .when(cardProductionPublisher).publish(any());
+
+        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE, "score=780"))
+                .isInstanceOf(CardProductionUnavailableException.class);
+    }
+
+    @Test
+    void getDetailsCombinesCustomerAndCardLookup() {
+        Customer customer = customer(id);
+        CardLookup lookup = CardLookup.unavailable();
+        when(customerRepository.findById(id)).thenReturn(Optional.of(customer));
+        when(cardInfoGateway.findByCustomerId(id)).thenReturn(lookup);
+
+        CustomerDetails details = customerService.getDetails(id);
+
+        assertThat(details.customer()).isSameAs(customer);
+        assertThat(details.card()).isSameAs(lookup);
+    }
+
+    @Test
+    void getDetailsDoesNotCallCardProcessorForUnknownCustomer() {
+        when(customerRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> customerService.getDetails(id)).isInstanceOf(CustomerNotFoundException.class);
+        verifyNoInteractions(cardInfoGateway);
     }
 
     @Test
     void createDoesNotTouchCpfOrDatabaseWhenBirthDateIsInvalid() {
         doThrow(new InvalidBirthDateException()).when(birthDatePolicy).validate(BIRTH_DATE);
 
-        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE))
+        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE, "score=780"))
                 .isInstanceOf(InvalidBirthDateException.class);
-        verifyNoInteractions(cpfPolicy, customerRepository);
+        verifyNoInteractions(cpfPolicy, customerRepository, cardProductionPublisher);
     }
 
     @Test
