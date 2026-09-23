@@ -39,6 +39,20 @@ docker compose --profile apps up --build
 LocalStack creates `rpe-client-manager-queue` (and its `-dlq`) on startup via
 `docker/localstack/init/ready.d/01-create-queues.sh`. WireMock stubs live in `docker/wiremock/mappings`.
 
+### Authentication (rpe-client-manager)
+
+Every rpe-client-manager endpoint except login needs a JWT. On startup the service creates an ADMIN user from
+`AUTH_BOOTSTRAP_USERNAME` / `AUTH_BOOTSTRAP_PASSWORD` (locally `admin` / `admin12345`):
+
+```bash
+TOKEN=$(curl -s localhost:8082/api/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin12345"}' | jq -r .accessToken)
+curl -H "Authorization: Bearer $TOKEN" localhost:8082/api/v1/...
+```
+
+Admins can create more users with `POST /api/v1/auth/users` (`{"username", "password", "role": "ADMIN|USER"}`).
+Outside local development, always set `JWT_SECRET` (at least 32 characters) and the bootstrap password.
+
 ## Project decisions
 
 Short notes on the choices made so far and why.
@@ -95,6 +109,38 @@ methods (`deleteById`, `deleteAll`, ...) that the soft-delete rule forbids. We c
 `Repository` interface and declaring only the methods used, which makes a hard delete impossible to compile,
 but chose familiarity: the rule is enforced by the service layer and code review, and documented on
 `ProductRepository`.
+
+### Authentication: JWT issued by the service, users in the database
+
+rpe-client-manager issues and validates its own HS256 tokens (Spring Security resource server), with users and
+BCrypt password hashes in its database. An external identity provider (e.g. Keycloak) would be more
+production-like but adds a whole extra service; a single shared secret is enough while only this service
+validates tokens. Tokens are stateless and last 1 hour (`JWT_EXPIRATION`), so there is no logout or revocation.
+
+### Customers: CPF, status and personal data
+
+- **CPF** is stored as 11 letters/digits without formatting. Letters are allowed because the CPF is expected to
+  become alphanumeric, so check digits aren't validated until those rules exist. It is unique and can't change.
+- **Status**: `DELETE` cancels, `POST /{id}/activate` reactivates, and `PUT` can only block. A cancelled customer
+  can come back (its CPF can never be reused), so creating one with a cancelled customer's CPF points to activate.
+- **Minimum age** is implemented but disabled (`CUSTOMER_MINIMUM_AGE=0`): it was considered, but the real value
+  depends on the product and regulation and isn't confirmed yet.
+- **Personal data** never reaches the logs: only the customer id and a masked CPF (`***.***.***-09`).
+
+### Card production (client-manager → SQS → card-processor)
+
+Creating a customer publishes a `CARD_PRODUCTION_REQUESTED` message to `rpe-client-manager-queue` with the
+customer id, name, CPF and the request's `credit_info`, so rpe-card-processor has what it needs without calling
+back. `credit_info` is only forwarded, never stored. `GET /customers/{id}` returns the customer plus its card and
+product from rpe-card-processor (stubbed by WireMock until it exists). If that service is down the customer is
+still returned, with `"card": null` and `"cardInfoAvailable": false`.
+
+> **Temporary solution, to be improved for the final product.** The message is sent inside the creation
+> transaction: if SQS fails, the customer is not saved and the API answers **503** (retry is safe). This keeps the
+> first version functional, but it can still send a message for a customer whose commit then fails, or lose a
+> send that times out but arrives later. The intended fix is a **transactional outbox**: the event is saved with
+> the customer in the same transaction and a relay publishes it with retries, removing the 503. It's marked
+> `TODO(outbox)` in `SqsCardProductionPublisher`.
 
 ### Independent services, one database
 

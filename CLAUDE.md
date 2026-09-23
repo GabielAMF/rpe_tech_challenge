@@ -48,6 +48,34 @@ the HTTP status); business-rule violations extend `BusinessRuleException`. `Glob
 all errors — including Spring's own — as ProblemDetail with extra `code` and `timestamp` fields. To add an
 error: add an `ErrorCode` constant and a `CustomException` subclass; no handler change needed.
 
+### rpe_client_manager
+
+Same layering and error format as rpe_catalog (base classes copied, not shared — services stay independent).
+Security (`config/SecurityConfig`): stateless JWT, HS256 via `JwtEncoder`/`JwtDecoder`, issued by
+`POST /api/v1/auth/login` (public); everything else needs a bearer token. Users live in `app_user` (BCrypt);
+an ADMIN is created on startup from `app.security.bootstrap-user`. Roles come from the `roles` claim and are
+enforced with URL rules in `SecurityConfig`, **not** `@PreAuthorize` (an `AccessDeniedException` thrown in a
+controller would hit `GlobalExceptionHandler`'s catch-all and become a 500). 401/403 are written by
+`SecurityProblemHandler` in the same ProblemDetail shape. Never log passwords or tokens.
+
+Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}`, `POST`, `POST /{id}/activate`.
+- `Cpf` value object: formatting stripped, upper-cased, exactly 11 letters/digits (alphanumeric CPF is expected;
+  check digits deliberately not validated yet). Unique and immutable (`updatable = false`, not in the PUT DTO).
+- Status: `DELETE` → CANCELADO (idempotent); `activate` → ATIVO from BLOQUEADO/CANCELADO (422 if already
+  ATIVO); `PUT` may only set `status` to BLOQUEADO (or repeat the current one). CANCELADO is not final because
+  a CPF can never be reused: creating with a cancelled customer's CPF → 409 `CANCELLED_CUSTOMER_EXISTS`.
+- `BirthDatePolicy`: birth date must be in the past; `app.customer.minimum-age` exists but defaults to 0
+  (disabled) until the real rule is confirmed.
+- Personal data: logs only carry the customer id and `Cpf.masked()` (`Cpf.toString()` is masked too). Never log
+  names, birth dates, full CPFs or raw database constraint messages (they contain the duplicated value).
+- Card production: `create` publishes `CardProductionRequested` (plain JSON, no Java type header — see
+  `SqsConfig`) through the `CardProductionPublisher` interface, inside the transaction; a failed/timed-out send
+  (`app.sqs.send-timeout`) → 503 and rollback. The record is the message contract with rpe_card_processor;
+  its `toString()` hides personal data. `TODO(outbox)` marks the planned transactional outbox.
+- `GET /customers/{id}` → `CustomerService.getDetails` (not transactional: no DB transaction during HTTP) uses
+  `CardInfoGateway` → Feign `CardProcessorClient` (`integrations.card-processor.base-url`, WireMock for now;
+  1s connect / 2s read timeout). The gateway never throws: 404 → no card yet, any other failure → unavailable.
+
 ## Requirements the services must cover
 
 - Expose REST APIs and call other applications (Spring Cloud OpenFeign; external APIs stubbed by WireMock).
