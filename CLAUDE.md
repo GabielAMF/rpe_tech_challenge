@@ -20,7 +20,7 @@ sharing one local infrastructure stack defined in the root `docker-compose.yml`.
 | `rpe_card_processor/` | `rpe-card-processor` | `com.rpe.cardprocessor` | 8083 | consumes `rpe-client-manager-queue`     |
 
 Package layout per service: `config`, `controller`, `service`, `repository`, `domain`, `client`
-(Feign clients), `messaging` (SQS; not in catalog), `exception` (catalog so far). Empty folders hold a `.gitkeep`.
+(Feign clients; not in catalog), `messaging` (SQS; not in catalog), `exception` (catalog so far). Empty folders hold a `.gitkeep`.
 
 Which service calls which over HTTP is not defined yet — ask before wiring it (known so far:
 rpe_card_processor will read products from rpe_catalog).
@@ -71,7 +71,9 @@ Because the tables share one schema, table names must not clash across services.
 ### Cross-cutting config conventions
 
 - The three `application.yml` files are near-identical copies (only card_processor has the Redis/cache
-  block; catalog also lacks `spring.cloud.aws` and `app.sqs`). A shared-config change must be applied to all three by hand.
+  block; catalog also lacks `spring.cloud.aws`, `app.sqs` and `integrations`). A shared-config change must be applied to all three by hand.
+- rpe_catalog only receives requests: it has no Feign, no WireMock test dependency and no Spring Cloud BOM.
+  Don't add them back unless it starts calling another service.
 - Feign base URLs go under `integrations.<name>.base-url` (currently `integrations.external-api.base-url`,
   env `EXTERNAL_API_BASE_URL`). WireMock is `localhost:8081` from the host but `wiremock:8080` inside compose.
 - The queue name is injected from `app.sqs.client-manager-queue`. Adding a new queue means updating the
