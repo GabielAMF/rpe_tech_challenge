@@ -12,6 +12,22 @@ Three independent Spring Boot 3.5 / Java 21 microservices sharing one infrastruc
 
 Each service is a standalone Maven project with its own `pom.xml`, `mvnw` and `Dockerfile`.
 
+> **Naming.** The challenge describes the services in Portuguese; the code uses English names:
+> **Produto Service** (Catálogo) → `rpe-catalog` (*product*), **Portador Service** → `rpe-client-manager`
+> (a portador is a *customer*), **Cartão Service** → `rpe-card-processor` (*card*). Domain values stay in Portuguese
+> as the challenge defines them (`ATIVO`, `BLOQUEADO`, `CANCELADO`).
+
+### API documentation (OpenAPI / Swagger)
+
+| Service            | Swagger UI                              | OpenAPI JSON                        |
+|--------------------|-----------------------------------------|-------------------------------------|
+| rpe-catalog        | http://localhost:8080/swagger-ui.html   | http://localhost:8080/v3/api-docs   |
+| rpe-client-manager | http://localhost:8082/swagger-ui.html   | http://localhost:8082/v3/api-docs   |
+| rpe-card-processor | http://localhost:8083/swagger-ui.html   | http://localhost:8083/v3/api-docs   |
+
+The docs are public. In rpe-client-manager, call `POST /api/v1/auth/login` from Swagger UI, then paste the
+`accessToken` into **Authorize** to try the other endpoints.
+
 ## Infrastructure
 
 | Concern                  | Technology                          | Local port |

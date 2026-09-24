@@ -11,6 +11,7 @@ import com.rpe.clientmanager.service.IssuedToken;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +30,7 @@ public class AuthController {
     private final Clock clock;
 
     /** Public. Exchanges username + password for a bearer token. */
+    @SecurityRequirements // public: overrides the global bearer requirement in the API docs
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
         IssuedToken token = authService.login(new Username(request.username()), request.password());

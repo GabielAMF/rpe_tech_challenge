@@ -181,6 +181,12 @@ Because the tables share one schema, table names must not clash across services.
   LocalStack init script, the `x-app-env` anchor, and the `application.yml` of both sides.
 - Lombok is available (annotation processor configured); `wiremock-spring-boot` is a test dependency for
   stubbing Feign calls in tests.
+- OpenAPI: `springdoc-openapi-starter-webmvc-ui` (`springdoc.version` property, 2.8.x = Boot 3.5 line) in all three,
+  `config/OpenApiConfig` per service; Swagger UI at `/swagger-ui.html`. client_manager permits `/v3/api-docs/**`
+  and `/swagger-ui/**` in `SecurityConfig`, declares a global `bearer-jwt` scheme, and login opts out with
+  `@SecurityRequirements`. `OpenApiDocsIntegrationTest` in each service.
+- The challenge text is in Portuguese: Produto Service = rpe_catalog, Portador Service = rpe_client_manager,
+  Cartão Service = rpe_card_processor (README "Naming").
 
 ## Commands
 
@@ -228,16 +234,22 @@ Kept committed on purpose, to track what's missing. Update it when a branch is m
 
 Done and merged into `dev` (in order): catalog CRUD → exception consistency → remove Feign from catalog →
 status endpoints → SOLID refactor → client_manager JWT auth → customer CRUD → card production (SQS publish +
-aggregated GET) → catalog product seed → card_processor card production
-→ card_processor card API (WireMock test-only; validated end to end by the user in compose).
+aggregated GET) → catalog product seed → card_processor card production → card_processor card API (WireMock
+test-only) → client_manager transactional outbox + idempotency definitions.
 
-In progress: `feature/client-manager-outbox` — transactional outbox + idempotency definitions (README
-"Transactional outbox and idempotency").
+The full challenge requirements were checked on 2026-09-24; the gaps are the items below.
 
-Next (agreed order):
-1. The user sends the full challenge requirements; check every one is covered.
-2. Integrated test from scratch (`docker compose down -v && docker compose --profile apps up --build -d
-   --remove-orphans`), including the unhappy paths: card processor stopped → `cardInfoAvailable: false`; catalog
-   stopped → `product.status: null` once the cache expires; LocalStack stopped → customer still created (201), the
-   event stays PENDING and is sent when LocalStack is back.
-3. Full SOLID/structure review of the three services (last, after all refactoring).
+In progress: `feature/openapi-docs` — springdoc/Swagger in all three services + README naming note.
+
+Next (agreed order, one branch each):
+1. Single-command startup: remove the `apps` compose profile so `docker compose up --build` starts everything
+   (infra only: `docker compose up -d postgres redis localstack`); update README/CLAUDE.md commands.
+2. rpe_card_processor, SQS retry + DLQ made explicit: `VisibilityTimeout` set in the LocalStack init script,
+   exponential backoff on failure (change the message visibility by receive count, e.g. 5s/20s/60s), a DLQ listener
+   logging dead messages at ERROR (ids only), README note on redriving the DLQ. Same branch: `GET .../card` reads
+   the full product (name, description, status) from the catalog through the cache, falling back to the card's
+   snapshot if the catalog is down (challenge: "ao criar/consultar o cartão, obter detalhes do produto").
+3. Integrated test from scratch (`docker compose down -v` + startup), including the unhappy paths: card processor
+   stopped → `cardInfoAvailable: false`; catalog stopped → snapshot product; LocalStack stopped → customer still
+   created (201), event PENDING until LocalStack is back.
+4. Full SOLID/structure review of the three services (last, after all refactoring).
