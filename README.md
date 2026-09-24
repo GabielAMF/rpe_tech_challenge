@@ -19,7 +19,6 @@ Each service is a standalone Maven project with its own `pom.xml`, `mvnw` and `D
 | Database (shared)        | PostgreSQL 17, database `rpe`       | 5432       |
 | Cache (card processor)   | Redis 7                             | 6379       |
 | Messaging                | AWS SQS via LocalStack              | 4566       |
-| External API stubs       | WireMock                            | 8081       |
 | Kafka (disabled for now) | Apache Kafka (KRaft)                | 9092       |
 
 All services use the same database. Each one keeps its own Flyway history table
@@ -37,7 +36,8 @@ docker compose --profile apps up --build
 ```
 
 LocalStack creates `rpe-client-manager-queue` (and its `-dlq`) on startup via
-`docker/localstack/init/ready.d/01-create-queues.sh`. WireMock stubs live in `docker/wiremock/mappings`.
+`docker/localstack/init/ready.d/01-create-queues.sh`. The services call each other for real (no stubs at
+runtime); WireMock is only used inside the tests.
 
 ### Authentication (rpe-client-manager)
 
@@ -138,8 +138,9 @@ validates tokens. Tokens are stateless and last 1 hour (`JWT_EXPIRATION`), so th
 Creating a customer publishes a `CARD_PRODUCTION_REQUESTED` message to `rpe-client-manager-queue` with the
 customer id, name, CPF and the request's `credit_info`, so rpe-card-processor has what it needs without calling
 back. `credit_info` is only forwarded, never stored. `GET /customers/{id}` returns the customer plus its card and
-product from rpe-card-processor (stubbed by WireMock until it exists). If that service is down the customer is
-still returned, with `"card": null` and `"cardInfoAvailable": false`.
+product from rpe-card-processor (`GET /api/v1/customers/{customerId}/card`). If that service is down the customer
+is still returned, with `"card": null` and `"cardInfoAvailable": false`; before the card is produced, `"card"` is
+null and `"cardInfoAvailable"` is true.
 
 > **Temporary solution, to be improved for the final product.** The message is sent inside the creation
 > transaction: if SQS fails, the customer is not saved and the API answers **503** (retry is safe). This keeps the
@@ -161,6 +162,14 @@ still returned, with `"card": null` and `"cardInfoAvailable": false`.
 - **Sensitive data**: number, expiry and CVV are encrypted in the database (AES-256-GCM, key in
   `CARD_ENCRYPTION_KEY`, 32 random bytes in base64, always set outside local development). Only the masked number
   (`**** **** **** 1234`) is ever exposed, and none of it is logged.
+- **Reading a card**: `GET /api/v1/customers/{customerId}/card` (404 until the card exists) returns the card
+  status, masked number and product. The card stores a snapshot of the product's id, name and description from
+  issue time; the product **status** is read live from rpe_catalog (through the Redis cache), since a product can
+  be cancelled after the card was issued. The status can be up to 10 minutes old (the cache TTL); that's fine
+  because products change rarely and not without notice. If the catalog can't answer, the card is still returned
+  with `product.status: null`.
+- **No authentication yet**: the card API is meant to be internal (only rpe-client-manager calls it) and is open.
+  Before exposing it, it needs service-to-service authentication (e.g. a client-credentials token or mTLS).
 
 ### Independent services, one database
 
@@ -177,4 +186,6 @@ rpe_client_manager don't depend on Redis at all, so they start without it.
 
 rpe_catalog only receives requests and never calls another service, so it has no Feign client and no WireMock
 dependency, and it starts with just PostgreSQL. Services that do call others (e.g. rpe_card_processor reading
-products from rpe_catalog) use Feign, and WireMock stubs those APIs in their tests and locally.
+products from rpe_catalog) use Feign. WireMock stubs the called APIs **only in tests** (in-process, per test
+class), including their failure modes; at runtime, locally and in compose, the services call each other for real,
+so there is no WireMock container.

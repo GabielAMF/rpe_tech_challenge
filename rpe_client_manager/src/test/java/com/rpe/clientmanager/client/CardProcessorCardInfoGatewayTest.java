@@ -31,7 +31,7 @@ class CardProcessorCardInfoGatewayTest {
     @Test
     void mapsCardAndProduct() {
         stubFor(get(cardUrl()).willReturn(okJson("""
-                {"cardId": "0c6f8a2e-1b3d-4e5f-8a7b-9c0d1e2f3a4b", "status": "ISSUED",
+                {"cardId": "0c6f8a2e-1b3d-4e5f-8a7b-9c0d1e2f3a4b", "status": "ATIVO",
                  "maskedNumber": "**** **** **** 1234", "createdAt": "2026-09-23T12:00:00Z",
                  "product": {"id": "3f2b6c1e-8d4a-4f7b-9c2e-1a5d6e7f8a9b", "name": "GOLD",
                              "description": "Gold card", "status": "ATIVO"}}
@@ -40,7 +40,7 @@ class CardProcessorCardInfoGatewayTest {
         CardLookup lookup = gateway.findByCustomerId(customerId);
 
         assertThat(lookup.available()).isTrue();
-        assertThat(lookup.card().status()).isEqualTo("ISSUED");
+        assertThat(lookup.card().status()).isEqualTo("ATIVO");
         assertThat(lookup.card().maskedNumber()).isEqualTo("**** **** **** 1234");
         assertThat(lookup.card().product().name()).isEqualTo("GOLD");
     }

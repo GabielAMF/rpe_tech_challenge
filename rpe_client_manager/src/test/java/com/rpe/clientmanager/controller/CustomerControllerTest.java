@@ -77,7 +77,7 @@ class CustomerControllerTest {
 
     @Test
     void getReturnsCustomerWithCardAndProduct() throws Exception {
-        CardInfo card = new CardInfo(CARD_ID, "ISSUED", "**** **** **** 1234",
+        CardInfo card = new CardInfo(CARD_ID, "ATIVO", "**** **** **** 1234",
                 new CardInfo.Product(PRODUCT_ID, "GOLD", "Gold card", "ATIVO"), NOW);
         when(customerService.getDetails(ID)).thenReturn(new CustomerDetails(customer(ID), CardLookup.found(card)));
 

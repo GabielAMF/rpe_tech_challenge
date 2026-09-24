@@ -14,6 +14,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.wiremock.spring.ConfigureWireMock;
+import org.wiremock.spring.EnableWireMock;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 import software.amazon.awssdk.services.sqs.model.Message;
 
@@ -22,6 +24,9 @@ import java.time.Instant;
 
 import java.util.concurrent.ThreadLocalRandom;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -33,11 +38,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * The whole customer lifecycle against the real infrastructure: database, a real token, the card production
- * message on LocalStack SQS, and card info from the WireMock container standing in for rpe_card_processor.
- * Needs the infrastructure from docker-compose.yml.
+ * message on LocalStack SQS, and card info from an in-process WireMock standing in for rpe_card_processor
+ * (the real services together are tested by hand, see README "Running"). Needs the infrastructure from
+ * docker-compose.yml.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@EnableWireMock(@ConfigureWireMock(baseUrlProperties = "integrations.card-processor.base-url"))
 class CustomerFlowIntegrationTest {
 
     @Autowired
@@ -95,7 +102,14 @@ class CustomerFlowIntegrationTest {
         assertThat(event.get("creditInfo").asText()).isEqualTo("score=780");
         assertThat(message.messageAttributes()).doesNotContainKey("JavaType");
 
-        // GET combines the customer with the card from rpe_card_processor (the WireMock stub).
+        // GET combines the customer with the card from rpe_card_processor (stubbed).
+        stubFor(com.github.tomakehurst.wiremock.client.WireMock.get(urlEqualTo("/api/v1/customers/" + id + "/card"))
+                .willReturn(okJson("""
+                        {"cardId": "0c6f8a2e-1b3d-4e5f-8a7b-9c0d1e2f3a4b", "status": "ATIVO",
+                         "maskedNumber": "**** **** **** 1234", "createdAt": "2026-09-23T12:00:00Z",
+                         "product": {"id": "3f2b6c1e-8d4a-4f7b-9c2e-1a5d6e7f8a9b", "name": "GOLD",
+                                     "description": "Gold card", "status": "ATIVO"}}
+                        """)));
         perform(get("/api/v1/customers/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cpf").value(cpf))

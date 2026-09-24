@@ -25,7 +25,7 @@ Package layout per service: `config`, `controller`, `service`, `repository`, `do
 How the services talk (ask before adding any other call):
 - rpe_client_manager → SQS `rpe-client-manager-queue` → rpe_card_processor (card production request).
 - rpe_client_manager → HTTP → rpe_card_processor `GET /api/v1/customers/{customerId}/card` (card + product for
-  `GET /customers/{id}`). **Still WireMock** until `feature/card-processor-card-api` exists (see Status).
+  `GET /customers/{id}`).
 - rpe_card_processor → HTTP → rpe_catalog `GET /api/v1/products/{id}` (cached in Redis).
 - Only rpe_client_manager requires a JWT. rpe_card_processor's API is open, internal-only (a documented gap).
 
@@ -79,8 +79,8 @@ Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}
   (`app.sqs.send-timeout`) → 503 and rollback. The record is the message contract with rpe_card_processor;
   its `toString()` hides personal data. `TODO(outbox)` marks the planned transactional outbox.
 - `GET /customers/{id}` → `CustomerService.getDetails` (not transactional: no DB transaction during HTTP) uses
-  `CardInfoGateway` → Feign `CardProcessorClient` (`integrations.card-processor.base-url`, WireMock for now;
-  1s connect / 2s read timeout). The gateway never throws: 404 → no card yet, any other failure → unavailable.
+  `CardInfoGateway` → Feign `CardProcessorClient` (`integrations.card-processor.base-url`,
+  `localhost:8083` / `rpe-card-processor:8083` in compose; 1s connect / 2s read timeout). The gateway never throws: 404 → no card yet, any other failure → unavailable.
 
 ### rpe_card_processor
 
@@ -98,6 +98,11 @@ event (`uk_card_source_event`); a repeat returns the existing card.
 - Number, expiry and CVV are AES-256-GCM encrypted at rest by JPA converters (`repository/converter`, Spring beans
   using `CardCipher`, key `app.card.encryption-key` = base64 of 32 bytes). Only `maskedNumber` may leave the
   service; never log card data, the holder name, CPF or credit info (`toString()`s of messages/commands hide them).
+- `GET /api/v1/customers/{customerId}/card` (`CustomerCardController` → `CardQueryService` → `CardMapper`/`CardResponse`,
+  the contract mirrored by client_manager's `CardProcessorCardResponse`): 404 `CARD_NOT_FOUND` until produced.
+  Product id/name/description come from the card's snapshot (`CardProduct`); `product.status` is read live through
+  `CatalogGateway` (cached) and is null if the catalog fails — the card is never hidden by a catalog outage.
+  Errors go through `controller/GlobalExceptionHandler` (copied from client_manager).
 - Spring-context tests listen on `rpe-card-processor-test-queue` (`src/test/resources/config/application.yml`), and
   the end-to-end test on a per-run queue, so tests never consume the real queue.
 
@@ -123,7 +128,7 @@ These were agreed with the user while building rpe_catalog and rpe_client_manage
 
 ## Requirements the services must cover
 
-- Expose REST APIs and call other applications (Spring Cloud OpenFeign; external APIs stubbed by WireMock).
+- Expose REST APIs and call other applications (Spring Cloud OpenFeign; called APIs stubbed by WireMock in tests).
 - Publish to / listen on SQS (Spring Cloud AWS 3.4.x, LocalStack locally).
 - Persist to PostgreSQL (Spring Data JPA, `ddl-auto: validate`, schema managed by Flyway).
 - Cache with Redis — **rpe_card_processor only** (`@EnableCaching`, `spring.cache.type=redis`, key prefix per service).
@@ -135,7 +140,6 @@ These were agreed with the user while building rpe_catalog and rpe_client_manage
 | postgres   | `postgres:17-alpine`         | 5432      | single database `rpe` (user/pass `app`/`app`) shared by all 3 |
 | redis      | `redis:7-alpine`             | 6379      |                                                              |
 | localstack | `localstack/localstack:4.14` | 4566      | SQS only; pinned because 2026.x tags may need an auth token  |
-| wiremock   | `wiremock/wiremock:3.13.2`   | 8081      | stubs in `docker/wiremock/mappings`                          |
 | kafka      | `apache/kafka:3.9.1`         | 9092      | commented out (precaution); `spring-kafka` commented in poms |
 
 - `docker/localstack/init/ready.d/01-create-queues.sh` creates `rpe-client-manager-queue` + `-dlq`
@@ -160,8 +164,11 @@ Because the tables share one schema, table names must not clash across services.
 - rpe_catalog only receives requests: it has no Feign, no WireMock test dependency and no Spring Cloud BOM.
   Don't add them back unless it starts calling another service.
 - Feign base URLs go under `integrations.<name>.base-url` (`card-processor` → `CARD_PROCESSOR_BASE_URL`,
-  `catalog` → `CATALOG_BASE_URL`), timeouts under `spring.cloud.openfeign.client.config.<name>`. WireMock is
-  `localhost:8081` from the host but `wiremock:8080` inside compose.
+  `catalog` → `CATALOG_BASE_URL`), timeouts under `spring.cloud.openfeign.client.config.<name>`. The defaults point
+  at the real services; there is no WireMock container any more.
+- WireMock is **test-only**: `@EnableWireMock(@ConfigureWireMock(baseUrlProperties = "integrations.<name>.base-url"))`
+  starts an in-process server per test class (see `CardProcessorCardInfoGatewayTest`, `CustomerFlowIntegrationTest`,
+  `CachedCatalogGatewayTest`). The services working together are validated by hand against compose (Status step 2).
 - The queue name is injected from `app.sqs.client-manager-queue`. Adding a new queue means updating the
   LocalStack init script, the `x-app-env` anchor, and the `application.yml` of both sides.
 - Lombok is available (annotation processor configured); `wiremock-spring-boot` is a test dependency for
@@ -198,7 +205,7 @@ All configuration in `application.yml` reads environment variables with localhos
 ## Environment notes
 
 - The developer works on Windows + WSL2 with Docker Desktop. Maven is not installed globally — always use `./mvnw`.
-- Docker Desktop/WSL bind-mount glitch: after `stop`/`restart`, wiremock or localstack may fail with
+- Docker Desktop/WSL bind-mount glitch: after `stop`/`restart`, localstack may fail with
   "error mounting ... no such file or directory". Fix: `docker compose up -d --force-recreate <service>`.
 - LocalStack keeps nothing: after a restart the init script recreates the queues, but messages are gone.
   rpe_card_processor won't start (its listener fails) if LocalStack is down.
@@ -207,24 +214,25 @@ All configuration in `application.yml` reads environment variables with localhos
 - Before `docker compose down -v`, the local database had a GOLD product with a random id, so card_processor's
   default product id didn't match. A clean `down -v` + restart seeds GOLD with the fixed id.
 
-## Status and next steps (as of 2026-09-23)
+## Status and next steps (as of 2026-09-24)
+
+Kept committed on purpose, to track what's missing. Update it when a branch is merged.
 
 Done and merged into `dev` (in order): catalog CRUD → exception consistency → remove Feign from catalog →
 status endpoints → SOLID refactor → client_manager JWT auth → customer CRUD → card production (SQS publish +
-aggregated GET) → catalog product seed → card_processor card production (`feature/card-processor-card-production`,
-merged by the user on 2026-09-23).
+aggregated GET) → catalog product seed → card_processor card production.
+
+In progress: `feature/card-processor-card-api` — card_processor's `GET /api/v1/customers/{customerId}/card` +
+`GlobalExceptionHandler`; client_manager points at the real service; WireMock container and stubs removed
+(WireMock is test-only now).
 
 Next:
-1. `feature/card-processor-card-api`: in rpe_card_processor add `GET /api/v1/customers/{customerId}/card`
-   matching the contract rpe_client_manager already consumes (`client/dto/CardProcessorCardResponse`: `cardId`,
-   `status`, `maskedNumber`, `product{id,name,description,status}`, `createdAt`; 404 when no card). Gaps to
-   decide: the card's product snapshot (`CardProduct`) has no `status` — store it or read it through the cached
-   catalog gateway; card status is ATIVO/BLOQUEADO/CANCELADO (the WireMock stub says `ISSUED`). Copy
-   `GlobalExceptionHandler` from client_manager (safe DataIntegrity logging). Then point rpe_client_manager at the
-   real service (`CARD_PROCESSOR_BASE_URL`: `http://localhost:8083` default, `http://rpe-card-processor:8083` in
-   compose) and decide whether to keep or delete the WireMock card stub.
-2. Full test from scratch: `docker compose down -v && docker compose --profile apps up --build -d`, log in,
-   create a customer (optionally `credit_info` = PLATINUM's id `9e5a2d7c-1b3f-4c8a-a6d4-7b9e1f3a5c2d`), then
-   `GET /customers/{id}` should show the real masked card and product. Write the curls for the user.
+1. Integrated test in a real scenario: `docker compose down -v && docker compose --profile apps up --build -d`,
+   log in, create a customer (optionally `credit_info` = PLATINUM's id `9e5a2d7c-1b3f-4c8a-a6d4-7b9e1f3a5c2d`),
+   then `GET /customers/{id}` should show the real masked card and product. Also try the unhappy paths (card
+   processor stopped → `cardInfoAvailable: false`; catalog stopped → `product.status: null`; LocalStack down →
+   503 on create). Write the curls for the user.
+2. SOLID/structure review of the three services once step 1 is validated.
 3. Open improvement (local TODO.md #4, `TODO(outbox)`): transactional outbox replacing the synchronous SQS send
    and its 503 in rpe_client_manager.
+4. Documented gap: rpe_card_processor's API has no service-to-service authentication.
