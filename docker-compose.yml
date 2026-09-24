@@ -13,8 +13,6 @@ x-app-env: &app-env
 x-infra-deps: &infra-deps
   postgres:
     condition: service_healthy
-  wiremock:
-    condition: service_started
 
 services:
   postgres:
@@ -63,16 +61,6 @@ services:
       timeout: 5s
       retries: 20
 
-  wiremock:
-    image: wiremock/wiremock:3.13.2
-    container_name: rpe-wiremock
-    command: ["--global-response-templating", "--verbose"]
-    ports:
-      - "8081:8080"
-    volumes:
-      - ./docker/wiremock/mappings:/home/wiremock/mappings:ro
-      - ./docker/wiremock/__files:/home/wiremock/__files:ro
-
   # Kafka (KRaft mode, no Zookeeper) - uncomment when needed, along with spring-kafka in pom.xml.
   # kafka:
   #   image: apache/kafka:3.9.1
@@ -119,8 +107,7 @@ services:
     environment:
       <<: *app-env
       SERVER_PORT: 8082
-      # rpe-card-processor isn't implemented yet: its API is stubbed by WireMock.
-      CARD_PROCESSOR_BASE_URL: http://wiremock:8080
+      CARD_PROCESSOR_BASE_URL: http://rpe-card-processor:8083
     depends_on:
       <<: *infra-deps
       localstack:
