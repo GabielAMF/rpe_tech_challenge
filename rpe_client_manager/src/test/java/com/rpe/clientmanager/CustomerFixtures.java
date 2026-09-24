@@ -1,5 +1,6 @@
 package com.rpe.clientmanager;
 
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.Customer;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -19,7 +20,7 @@ public final class CustomerFixtures {
     }
 
     public static Customer customer(UUID id) {
-        Customer customer = new Customer("Maria Silva", CPF, BIRTH_DATE);
+        Customer customer = new Customer(new CustomerName("Maria Silva"), CPF, BIRTH_DATE);
         ReflectionTestUtils.setField(customer, "id", id);
         ReflectionTestUtils.setField(customer, "createdAt", NOW);
         ReflectionTestUtils.setField(customer, "updatedAt", NOW);

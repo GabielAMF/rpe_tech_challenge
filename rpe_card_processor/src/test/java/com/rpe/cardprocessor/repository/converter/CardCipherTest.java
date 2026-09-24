@@ -1,4 +1,4 @@
-package com.rpe.cardprocessor.service;
+package com.rpe.cardprocessor.repository.converter;
 
 import com.rpe.cardprocessor.TestCardProperties;
 import com.rpe.cardprocessor.config.CardProperties;

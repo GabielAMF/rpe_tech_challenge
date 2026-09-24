@@ -6,6 +6,7 @@ import com.rpe.clientmanager.controller.dto.CustomerResponse;
 import com.rpe.clientmanager.controller.dto.UpdateCustomerRequest;
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.Customer;
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.service.CustomerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +42,7 @@ public class CustomerController {
     @PostMapping
     public ResponseEntity<CustomerResponse> create(@Valid @RequestBody CreateCustomerRequest request) {
         Customer created = customerService.create(
-                request.name(), new Cpf(request.cpf()), request.birthDate(), request.creditInfo());
+                new CustomerName(request.name()), new Cpf(request.cpf()), request.birthDate(), request.creditInfo());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(created.getId())
@@ -51,7 +52,7 @@ public class CustomerController {
 
     @PutMapping("/{id}")
     public CustomerResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateCustomerRequest request) {
-        Customer updated = customerService.update(id, request.name(), request.birthDate(), request.status());
+        Customer updated = customerService.update(id, new CustomerName(request.name()), request.birthDate(), request.status());
         return customerMapper.toResponse(updated);
     }
 

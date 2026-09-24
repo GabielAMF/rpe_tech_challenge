@@ -1,0 +1,10 @@
+# Test-only overrides, merged on top of src/main/resources/application.yml.
+spring:
+  datasource:
+    # Tests use their own database (docker/postgres/init), never the one the compose applications use.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${TEST_DB_NAME:rpe_test}
+app:
+  sqs:
+    # Tests publish to their own queue (created on first send), so a running rpe-card-processor never consumes
+    # their messages and they never read real ones.
+    client-manager-queue: rpe-client-manager-test-queue

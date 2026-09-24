@@ -1,4 +1,4 @@
-package com.rpe.clientmanager.service;
+package com.rpe.clientmanager.repository.converter;
 
 import com.rpe.clientmanager.config.OutboxProperties;
 import org.junit.jupiter.api.Test;

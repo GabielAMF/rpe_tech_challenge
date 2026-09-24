@@ -32,8 +32,6 @@ import java.nio.charset.StandardCharsets;
 @EnableConfigurationProperties(SecurityProperties.class)
 public class SecurityConfig {
 
-    public static final String ROLES_CLAIM = "roles";
-
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProblemHandler problemHandler) throws Exception {
         return http
@@ -80,7 +78,7 @@ public class SecurityConfig {
     /** Maps the {@code roles} claim (e.g. ["ADMIN"]) to Spring authorities (ROLE_ADMIN). */
     private static JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName(ROLES_CLAIM);
+        authorities.setAuthoritiesClaimName(JwtTokenService.ROLES_CLAIM);
         authorities.setAuthorityPrefix("ROLE_");
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(authorities);

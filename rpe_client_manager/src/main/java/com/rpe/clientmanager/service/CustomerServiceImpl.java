@@ -2,6 +2,7 @@ package com.rpe.clientmanager.service;
 
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.Customer;
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.domain.CustomerStatus;
 import com.rpe.clientmanager.exception.CustomerNotFoundException;
 import com.rpe.clientmanager.exception.StatusChangeNotAllowedException;
@@ -45,7 +46,7 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     @Transactional
-    public Customer create(String name, Cpf cpf, LocalDate birthDate, String creditInfo) {
+    public Customer create(CustomerName name, Cpf cpf, LocalDate birthDate, String creditInfo) {
         birthDatePolicy.validate(birthDate);
         cpfPolicy.ensureAvailable(cpf);
         // saveAndFlush so the id and audit timestamps exist before the event is built and the customer returned.
@@ -58,7 +59,7 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     @Transactional
-    public Customer update(UUID id, String name, LocalDate birthDate, CustomerStatus status) {
+    public Customer update(UUID id, CustomerName name, LocalDate birthDate, CustomerStatus status) {
         Customer customer = getCustomer(id);
         boolean block = shouldBlock(customer, status);
         birthDatePolicy.validate(birthDate);

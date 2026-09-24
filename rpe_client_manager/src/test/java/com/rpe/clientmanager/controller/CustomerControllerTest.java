@@ -1,5 +1,6 @@
 package com.rpe.clientmanager.controller;
 
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.config.ClockConfig;
 import com.rpe.clientmanager.config.SecurityConfig;
 import com.rpe.clientmanager.config.SecurityProblemHandler;
@@ -125,7 +126,7 @@ class CustomerControllerTest {
 
     @Test
     void postNormalizesCpfAndReturnsLocation() throws Exception {
-        when(customerService.create("Maria Silva", new Cpf("12345678909"), BIRTH_DATE, "score=780")).thenReturn(customer(ID));
+        when(customerService.create(new CustomerName("Maria Silva"), new Cpf("12345678909"), BIRTH_DATE, "score=780")).thenReturn(customer(ID));
 
         mockMvc.perform(post("/api/v1/customers").with(USER)
                         .contentType(MediaType.APPLICATION_JSON).content(NEW_CUSTOMER))
@@ -163,7 +164,7 @@ class CustomerControllerTest {
 
     @Test
     void postWithCpfOfCancelledCustomerReturns409WithCustomerId() throws Exception {
-        when(customerService.create(anyString(), any(Cpf.class), any(), anyString()))
+        when(customerService.create(any(CustomerName.class), any(Cpf.class), any(), anyString()))
                 .thenThrow(new CancelledCustomerExistsException(ID, CPF));
 
         mockMvc.perform(post("/api/v1/customers").with(USER)
@@ -175,7 +176,7 @@ class CustomerControllerTest {
 
     @Test
     void putPassesOptionalStatusAndIgnoresCpf() throws Exception {
-        when(customerService.update(ID, "Maria Silva", BIRTH_DATE, CustomerStatus.BLOQUEADO)).thenReturn(customer(ID));
+        when(customerService.update(ID, new CustomerName("Maria Silva"), BIRTH_DATE, CustomerStatus.BLOQUEADO)).thenReturn(customer(ID));
 
         mockMvc.perform(put("/api/v1/customers/{id}", ID).with(USER)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -184,12 +185,12 @@ class CustomerControllerTest {
                                 """))
                 .andExpect(status().isOk());
 
-        verify(customerService).update(ID, "Maria Silva", BIRTH_DATE, CustomerStatus.BLOQUEADO);
+        verify(customerService).update(ID, new CustomerName("Maria Silva"), BIRTH_DATE, CustomerStatus.BLOQUEADO);
     }
 
     @Test
     void putWithDisallowedStatusReturns422() throws Exception {
-        when(customerService.update(eq(ID), anyString(), any(), eq(CustomerStatus.ATIVO)))
+        when(customerService.update(eq(ID), any(CustomerName.class), any(), eq(CustomerStatus.ATIVO)))
                 .thenThrow(new StatusChangeNotAllowedException(CustomerStatus.ATIVO));
 
         mockMvc.perform(put("/api/v1/customers/{id}", ID).with(USER)

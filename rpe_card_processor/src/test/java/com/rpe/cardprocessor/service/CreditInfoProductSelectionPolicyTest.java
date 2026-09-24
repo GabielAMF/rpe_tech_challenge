@@ -24,7 +24,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class ProductSelectionPolicyTest {
+class CreditInfoProductSelectionPolicyTest {
 
     private static final UUID PLATINUM_ID = UUID.fromString("9e5a2d7c-1b3f-4c8a-a6d4-7b9e1f3a5c2d");
     private static final CatalogProduct PLATINUM = new CatalogProduct(PLATINUM_ID, "PLATINUM", null, "ATIVO");
@@ -32,11 +32,11 @@ class ProductSelectionPolicyTest {
     @Mock
     private CatalogGateway catalog;
 
-    private ProductSelectionPolicy policy;
+    private CreditInfoProductSelectionPolicy policy;
 
     @BeforeEach
     void setUp() {
-        policy = new ProductSelectionPolicy(catalog, TestCardProperties.properties());
+        policy = new CreditInfoProductSelectionPolicy(catalog, TestCardProperties.properties());
     }
 
     @Test
