@@ -45,7 +45,7 @@ class CustomerCardControllerTest {
         Card card = card(CUSTOMER_ID);
         ReflectionTestUtils.setField(card, "id", CARD_ID);
         ReflectionTestUtils.setField(card, "createdAt", CREATED_AT);
-        when(cardQueryService.findByCustomerId(CUSTOMER_ID)).thenReturn(new CardDetails(card, "ATIVO"));
+        when(cardQueryService.findByCustomerId(CUSTOMER_ID)).thenReturn(new CardDetails(card, GOLD));
 
         mockMvc.perform(get("/api/v1/customers/{customerId}/card", CUSTOMER_ID))
                 .andExpect(status().isOk())

@@ -187,9 +187,9 @@ for a customer that doesn't exist, and no 503 when SQS is down. `OutboxRelay` (e
 
 ### Card processor: product choice, card data and encryption
 
-- **Consuming**: rpe-card-processor listens on `rpe-client-manager-queue`. A message that fails (e.g. the catalog is
-  down) is retried by SQS and moved to the DLQ after 3 attempts. Processing is idempotent: the same message, or a
-  second one for the same customer, never creates a second card.
+- **Consuming**: rpe-card-processor listens on `rpe-client-manager-queue`. A failed message is retried with
+  backoff and ends up in the DLQ (see "SQS retry and dead-letter queue" below). Processing is idempotent: the same
+  message, or a second one for the same customer, never creates a second card.
 - **Product (placeholder rule)**: there is no credit analysis yet, so `credit_info` is read as a catalog product
   id; if it isn't one, or that product isn't ATIVO, the default product (GOLD) is used. Catalog responses are
   cached in Redis for 10 minutes.
@@ -199,14 +199,42 @@ for a customer that doesn't exist, and no 503 when SQS is down. `OutboxRelay` (e
   `CARD_ENCRYPTION_KEY`, 32 random bytes in base64, always set outside local development). Only the masked number
   (`**** **** **** 1234`) is ever exposed, and none of it is logged.
 - **Reading a card**: `GET /api/v1/customers/{customerId}/card` (404 until the card exists) returns the card
-  status, masked number and product. The card stores a snapshot of the product's id, name and description from
-  issue time; the product **status** is read live from rpe_catalog (through the Redis cache), since a product can
-  be cancelled after the card was issued. The status can be up to 10 minutes old (the cache TTL); that's fine
-  because products change rarely and not without notice. If the catalog can't answer, the card is still returned
-  with `product.status: null`.
+  status, masked number and product. Both when creating and when reading a card, the product comes from rpe_catalog
+  through the Redis cache, so a renamed or cancelled product shows up (up to 10 minutes late, the cache TTL; fine
+  because products change rarely and not without notice). The card also stores a snapshot of the product (id,
+  name, description) from issue time: if the catalog can't answer, the card is still returned with that snapshot
+  and `product.status: null`.
 - **No authentication**: the challenge only requires authentication on rpe-client-manager. The card API is
   internal (only rpe-client-manager calls it) and open; exposing it would need service-to-service authentication
   (e.g. a client-credentials token or mTLS).
+
+### SQS retry and dead-letter queue (rpe-card-processor)
+
+A card production message that fails (e.g. rpe-catalog is down) is not lost and not retried in a tight loop:
+
+1. **Retry with exponential backoff.** When the listener throws, the message isn't deleted. Spring Cloud AWS's
+   `ExponentialBackoffErrorHandler` (`SqsConfig`) sets the message's visibility timeout from its receive count, so
+   SQS redelivers it **5s**, then **20s** after a failure (`app.sqs.retry.*`). Without it, every retry would wait
+   the queue's fixed 30s visibility timeout (the time allowed to process a message).
+2. **Dead-letter queue.** The queue's redrive policy moves a message to `rpe-client-manager-queue-dlq` after
+   **3 failed receives**. Dead messages are kept 14 days (the SQS maximum). A message that can never succeed
+   (e.g. missing fields) takes the same path, so nothing is dropped silently.
+3. **Alerting.** `DeadLetterQueueMonitor` checks the DLQ size every minute and logs at **ERROR** while it isn't
+   empty. It doesn't consume the DLQ (that would delete the messages). In AWS this would be a CloudWatch alarm on
+   the DLQ's `ApproximateNumberOfMessagesVisible`.
+4. **Redrive.** Once the cause is fixed, move the messages back to the main queue; processing is idempotent, so a
+   message that did get processed meanwhile does no harm:
+
+```bash
+# inspect (peek without removing)
+docker exec rpe-localstack awslocal sqs receive-message --visibility-timeout 0 --max-number-of-messages 10 \
+  --queue-url http://localhost:4566/000000000000/rpe-client-manager-queue-dlq
+# move everything back to rpe-client-manager-queue
+docker exec rpe-localstack awslocal sqs start-message-move-task \
+  --source-arn arn:aws:sqs:us-east-1:000000000000:rpe-client-manager-queue-dlq
+```
+
+Tested end to end in `CardProductionRetryIntegrationTest` (3 attempts with growing gaps, then the DLQ).
 
 ### Independent services, one database
 

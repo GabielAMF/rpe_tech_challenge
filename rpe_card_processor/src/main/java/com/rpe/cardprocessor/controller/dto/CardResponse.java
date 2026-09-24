@@ -17,7 +17,10 @@ public record CardResponse(
         Instant createdAt
 ) {
 
-    /** {@code status} is the product's current status in rpe_catalog, null if the catalog couldn't be read. */
+    /**
+     * The product as rpe_catalog describes it now; if the catalog couldn't be read, the card's issue-time snapshot
+     * with a null {@code status}.
+     */
     public record ProductResponse(UUID id, String name, String description, String status) {
     }
 }

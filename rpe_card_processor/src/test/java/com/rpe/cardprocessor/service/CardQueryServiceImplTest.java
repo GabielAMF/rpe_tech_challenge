@@ -35,32 +35,34 @@ class CardQueryServiceImplTest {
     private final UUID customerId = UUID.randomUUID();
 
     @Test
-    void returnsCardWithCurrentProductStatus() {
+    void returnsCardWithTheProductAsTheCatalogDescribesItNow() {
         Card card = card(customerId);
+        CatalogProduct current = new CatalogProduct(GOLD.id(), "GOLD CLASSIC", "Renamed later", "CANCELADO");
         when(cardRepository.findByCustomerId(customerId)).thenReturn(Optional.of(card));
-        when(catalogGateway.findProduct(GOLD.id()))
-                .thenReturn(Optional.of(new CatalogProduct(GOLD.id(), "GOLD", "Renamed later", "CANCELADO")));
+        when(catalogGateway.findProduct(GOLD.id())).thenReturn(Optional.of(current));
 
         CardDetails details = service.findByCustomerId(customerId);
 
         assertThat(details.card()).isSameAs(card);
-        assertThat(details.productStatus()).isEqualTo("CANCELADO");
+        assertThat(details.product()).isEqualTo(current);
     }
 
     @Test
-    void productStatusIsNullWhenCatalogIsUnavailable() {
+    void fallsBackToTheSnapshotWhenCatalogIsUnavailable() {
         when(cardRepository.findByCustomerId(customerId)).thenReturn(Optional.of(card(customerId)));
         when(catalogGateway.findProduct(GOLD.id())).thenThrow(new CatalogUnavailableException(new RuntimeException("down")));
 
-        assertThat(service.findByCustomerId(customerId).productStatus()).isNull();
+        assertThat(service.findByCustomerId(customerId).product())
+                .isEqualTo(new CatalogProduct(GOLD.id(), GOLD.name(), GOLD.description(), null));
     }
 
     @Test
-    void productStatusIsNullWhenProductIsGoneFromCatalog() {
+    void fallsBackToTheSnapshotWhenProductIsGoneFromCatalog() {
         when(cardRepository.findByCustomerId(customerId)).thenReturn(Optional.of(card(customerId)));
         when(catalogGateway.findProduct(GOLD.id())).thenReturn(Optional.empty());
 
-        assertThat(service.findByCustomerId(customerId).productStatus()).isNull();
+        assertThat(service.findByCustomerId(customerId).product())
+                .isEqualTo(new CatalogProduct(GOLD.id(), GOLD.name(), GOLD.description(), null));
     }
 
     @Test

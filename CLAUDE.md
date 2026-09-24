@@ -99,6 +99,12 @@ un-acked → SQS retries → DLQ after 3 receives. Idempotent: one card per cust
 event (`uk_card_source_event`); a repeat returns the existing card.
 - `ProductSelectionPolicy` is an explicit **placeholder**: `creditInfo` parsed as a catalog product id (used if it
   exists and is ATIVO), else `app.card.default-product-id` (seeded GOLD).
+- Retry/DLQ: `config/SqsConfig` registers an `ExponentialBackoffErrorHandler` bean (picked up by Spring Cloud AWS's
+  default listener factory; `app.sqs.retry.*`: 5s ×4, cap 5m) that sets the failed message's visibility from its
+  receive count. Queue `VisibilityTimeout=30`, redrive after 3 receives, DLQ retention 14 days (LocalStack init
+  script). `messaging/DeadLetterQueueMonitor` (`@Scheduled`, `app.sqs.dlq-monitor.*`, disabled in the test yml)
+  logs ERROR while the DLQ (`app.sqs.client-manager-dlq`) isn't empty — it never consumes it. Redrive with
+  `start-message-move-task` (README). `CardProductionRetryIntegrationTest` creates its own queue + DLQ.
 - `CachedCatalogGateway` → Feign `CatalogClient` (`integrations.catalog.base-url`), `@Cacheable` in Redis cache
   `catalog-products` as JSON (`CacheConfig`); only found products are cached (Optional + `unless`).
 - `CardDataGenerator`: random operator (VISA/MASTERCARD/ELO), number = operator prefix + random digits + Luhn,
@@ -108,8 +114,8 @@ event (`uk_card_source_event`); a repeat returns the existing card.
   service; never log card data, the holder name, CPF or credit info (`toString()`s of messages/commands hide them).
 - `GET /api/v1/customers/{customerId}/card` (`CustomerCardController` → `CardQueryService` → `CardMapper`/`CardResponse`,
   the contract mirrored by client_manager's `CardProcessorCardResponse`): 404 `CARD_NOT_FOUND` until produced.
-  Product id/name/description come from the card's snapshot (`CardProduct`); `product.status` is read live through
-  `CatalogGateway` (cached) and is null if the catalog fails — the card is never hidden by a catalog outage.
+  The product (id/name/description/status) is read through `CatalogGateway` (cached); if the catalog fails or no
+  longer knows it, the card's snapshot (`CardProduct`) is used with a null status — never hidden by an outage.
   Errors go through `controller/GlobalExceptionHandler` (copied from client_manager).
 - Spring-context tests listen on `rpe-card-processor-test-queue` (`src/test/resources/config/application.yml`), and
   the end-to-end test on a per-run queue, so tests never consume the real queue.
@@ -242,16 +248,11 @@ test-only) → client_manager transactional outbox + idempotency definitions.
 
 The full challenge requirements were checked on 2026-09-24; the gaps are the items below.
 
-In progress: `chore/compose-single-command` — no `apps` profile, app healthchecks.
-(`feature/openapi-docs` merged.)
+In progress: `feature/card-processor-sqs-retry-dlq` — exponential backoff, DLQ monitor, queue attributes, product
+details read from the catalog on GET. (`feature/openapi-docs`, `chore/compose-single-command` merged.)
 
 Next (agreed order, one branch each):
-1. rpe_card_processor, SQS retry + DLQ made explicit: `VisibilityTimeout` set in the LocalStack init script,
-   exponential backoff on failure (change the message visibility by receive count, e.g. 5s/20s/60s), a DLQ listener
-   logging dead messages at ERROR (ids only), README note on redriving the DLQ. Same branch: `GET .../card` reads
-   the full product (name, description, status) from the catalog through the cache, falling back to the card's
-   snapshot if the catalog is down (challenge: "ao criar/consultar o cartão, obter detalhes do produto").
-2. Integrated test from scratch (`docker compose down -v` + startup), including the unhappy paths: card processor
+1. Integrated test from scratch (`docker compose down -v` + startup), including the unhappy paths: card processor
    stopped → `cardInfoAvailable: false`; catalog stopped → snapshot product; LocalStack stopped → customer still
    created (201), event PENDING until LocalStack is back.
-3. Full SOLID/structure review of the three services (last, after all refactoring).
+2. Full SOLID/structure review of the three services (last, after all refactoring).
