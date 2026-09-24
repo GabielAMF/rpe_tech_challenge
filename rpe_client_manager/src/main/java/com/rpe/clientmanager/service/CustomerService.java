@@ -22,12 +22,11 @@ public interface CustomerService {
     CustomerDetails getDetails(UUID id);
 
     /**
-     * Creates an ATIVO customer and requests card production for it. {@code creditInfo} only travels in the
-     * card production request; it is not stored here.
+     * Creates an ATIVO customer and requests card production for it: the request is saved in the outbox in the
+     * same transaction and sent to rpe_card_processor asynchronously. {@code creditInfo} only travels in that
+     * request (encrypted in the outbox until sent); it is not stored with the customer.
      *
      * @throws com.rpe.clientmanager.exception.BusinessRuleException if the CPF is taken
-     * @throws com.rpe.clientmanager.exception.CardProductionUnavailableException if the request can't be sent
-     *         (the customer is then not created)
      */
     Customer create(String name, Cpf cpf, LocalDate birthDate, String creditInfo);
 

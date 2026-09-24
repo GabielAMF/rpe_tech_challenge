@@ -70,8 +70,22 @@ app:
   sqs:
     # Published by rpe_client_manager, consumed by rpe_card_processor.
     client-manager-queue: ${CLIENT_MANAGER_QUEUE:rpe-client-manager-queue}
-    # How long customer creation waits for SQS before answering 503.
+    # How long the outbox relay waits for SQS to accept one event before counting the attempt as failed.
     send-timeout: ${SQS_SEND_TIMEOUT:5s}
+  # Transactional outbox for card production requests (see OutboxRelay).
+  outbox:
+    poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
+    batch-size: 50
+    # Backoff doubles from initial-backoff up to max-backoff; after max-attempts the event is FAILED (about 23 min).
+    max-attempts: 12
+    initial-backoff: 2s
+    max-backoff: 5m
+    # SENT events (payload already cleared) are deleted after this long, daily at 03:00.
+    retention: 7d
+    purge-cron: "0 0 3 * * *"
+    # AES-256 key (base64 of 32 bytes) encrypting pending payloads (they carry name, CPF and credit info).
+    # The default is for local development only: always set OUTBOX_ENCRYPTION_KEY anywhere else.
+    encryption-key: ${OUTBOX_ENCRYPTION_KEY:QmVp3Z1q7j5V0kqKp2XN4r8sYwT6uH9aLcE1dF3gJ0M=}
 
 management:
   endpoints:

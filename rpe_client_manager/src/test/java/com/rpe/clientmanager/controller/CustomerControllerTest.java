@@ -6,7 +6,6 @@ import com.rpe.clientmanager.config.SecurityProblemHandler;
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.CustomerStatus;
 import com.rpe.clientmanager.exception.CancelledCustomerExistsException;
-import com.rpe.clientmanager.exception.CardProductionUnavailableException;
 import com.rpe.clientmanager.exception.CustomerAlreadyActiveException;
 import com.rpe.clientmanager.exception.CustomerNotFoundException;
 import com.rpe.clientmanager.exception.StatusChangeNotAllowedException;
@@ -160,18 +159,6 @@ class CustomerControllerTest {
                 .andExpect(jsonPath("$.errors.cpf").exists())
                 .andExpect(jsonPath("$.errors.birthDate").exists())
                 .andExpect(jsonPath("$.errors.creditInfo").exists());
-    }
-
-    @Test
-    void postReturns503WhenCardProductionIsUnavailable() throws Exception {
-        when(customerService.create(anyString(), any(Cpf.class), any(), anyString()))
-                .thenThrow(new CardProductionUnavailableException(new RuntimeException("sqs down")));
-
-        mockMvc.perform(post("/api/v1/customers").with(USER)
-                        .contentType(MediaType.APPLICATION_JSON).content(NEW_CUSTOMER))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("CARD_PRODUCTION_UNAVAILABLE"))
-                .andExpect(jsonPath("$.detail").value(not(containsString("sqs down"))));
     }
 
     @Test

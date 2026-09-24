@@ -5,6 +5,6 @@ package com.rpe.clientmanager.service;
  */
 public interface CardProductionPublisher {
 
-    /** @throws com.rpe.clientmanager.exception.CardProductionUnavailableException if the request can't be sent */
+    /** Must be called inside the transaction that creates the customer; the request is delivered after commit. */
     void publish(CardProductionRequested event);
 }

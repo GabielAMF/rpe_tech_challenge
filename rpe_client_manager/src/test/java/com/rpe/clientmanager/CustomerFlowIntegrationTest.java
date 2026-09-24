@@ -2,7 +2,10 @@ package com.rpe.clientmanager;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rpe.clientmanager.domain.OutboxEvent;
+import com.rpe.clientmanager.domain.OutboxStatus;
 import com.rpe.clientmanager.repository.CustomerRepository;
+import com.rpe.clientmanager.repository.OutboxEventRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +24,8 @@ import software.amazon.awssdk.services.sqs.model.Message;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -38,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * The whole customer lifecycle against the real infrastructure: database, a real token, the card production
- * message on LocalStack SQS, and card info from an in-process WireMock standing in for rpe_card_processor
+ * request going through the outbox to LocalStack SQS, and card info from an in-process WireMock standing in for rpe_card_processor
  * (the real services together are tested by hand, see README "Running"). Needs the infrastructure from
  * docker-compose.yml.
  */
@@ -55,6 +60,9 @@ class CustomerFlowIntegrationTest {
 
     @Autowired
     private CustomerRepository customerRepository;
+
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
 
     @Autowired
     private SqsAsyncClient sqs;
@@ -78,7 +86,10 @@ class CustomerFlowIntegrationTest {
 
     @AfterEach
     void removeTestCustomer() {
-        customerRepository.findByCpf(cpf).ifPresent(customerRepository::delete);
+        customerRepository.findByCpf(cpf).ifPresent(customer -> {
+            outboxEventRepository.deleteAll(outboxEventRepository.findByAggregateId(customer.getId()));
+            customerRepository.delete(customer);
+        });
     }
 
     @Test
@@ -93,7 +104,7 @@ class CustomerFlowIntegrationTest {
                 .andExpect(jsonPath("$.status").value("ATIVO")));
         String id = created.get("id").asText();
 
-        // Creating the customer published a card production request, as plain JSON.
+        // Creating the customer stored a card production request in the outbox; the relay sends it as plain JSON.
         Message message = takeCardProductionMessage(id);
         JsonNode event = objectMapper.readTree(message.body());
         assertThat(event.get("eventType").asText()).isEqualTo("CARD_PRODUCTION_REQUESTED");
@@ -101,6 +112,14 @@ class CustomerFlowIntegrationTest {
         assertThat(event.get("cpf").asText()).isEqualTo(cpf);
         assertThat(event.get("creditInfo").asText()).isEqualTo("score=780");
         assertThat(message.messageAttributes()).doesNotContainKey("JavaType");
+
+        // Once sent, the outbox row is SENT, with the same eventId and no personal data left.
+        List<OutboxEvent> outbox = outboxEventRepository.findByAggregateId(UUID.fromString(id));
+        assertThat(outbox).singleElement().satisfies(sent -> {
+            assertThat(sent.getStatus()).isEqualTo(OutboxStatus.SENT);
+            assertThat(sent.getEventId().toString()).isEqualTo(event.get("eventId").asText());
+            assertThat(sent.getPayload()).isNull();
+        });
 
         // GET combines the customer with the card from rpe_card_processor (stubbed).
         stubFor(com.github.tomakehurst.wiremock.client.WireMock.get(urlEqualTo("/api/v1/customers/" + id + "/card"))
