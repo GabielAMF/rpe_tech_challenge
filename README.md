@@ -137,17 +137,34 @@ validates tokens. Tokens are stateless and last 1 hour (`JWT_EXPIRATION`), so th
 
 Creating a customer publishes a `CARD_PRODUCTION_REQUESTED` message to `rpe-client-manager-queue` with the
 customer id, name, CPF and the request's `credit_info`, so rpe-card-processor has what it needs without calling
-back. `credit_info` is only forwarded, never stored. `GET /customers/{id}` returns the customer plus its card and
+back. `credit_info` is only forwarded: it is never stored with the customer, only (encrypted) in the outbox until sent. `GET /customers/{id}` returns the customer plus its card and
 product from rpe-card-processor (`GET /api/v1/customers/{customerId}/card`). If that service is down the customer
 is still returned, with `"card": null` and `"cardInfoAvailable": false`; before the card is produced, `"card"` is
 null and `"cardInfoAvailable"` is true.
 
-> **Temporary solution, to be improved for the final product.** The message is sent inside the creation
-> transaction: if SQS fails, the customer is not saved and the API answers **503** (retry is safe). This keeps the
-> first version functional, but it can still send a message for a customer whose commit then fails, or lose a
-> send that times out but arrives later. The intended fix is a **transactional outbox**: the event is saved with
-> the customer in the same transaction and a relay publishes it with retries, removing the 503. It's marked
-> `TODO(outbox)` in `SqsCardProductionPublisher`.
+### Transactional outbox and idempotency
+
+Creating a customer never talks to SQS. The card production request is saved in the `outbox_event` table **in the
+same transaction** as the customer, so both are committed or neither is: no customer without a request, no request
+for a customer that doesn't exist, and no 503 when SQS is down. `OutboxRelay` (every second) locks due events with
+`FOR UPDATE SKIP LOCKED` (safe with several instances), sends them and marks them SENT.
+
+- **At-least-once delivery.** If the relay dies after SQS accepted an event but before marking it SENT, the event
+  is sent again, with the same `eventId`. SQS standard queues can also deliver twice. Duplicates are expected.
+- **Idempotent consumer.** rpe-card-processor creates at most one card per event (`uk_card_source_event`) and per
+  customer (`uk_card_customer`); a repeat returns the existing card and is acknowledged. If two copies are
+  processed at the same moment, the loser hits the unique constraint, is retried by SQS and then finds the card.
+- **Idempotent API.** A retried `POST /customers` can't create a second customer: the CPF is unique, so the
+  retry gets 409. No `Idempotency-Key` header is needed. `DELETE` is idempotent (204 again); `activate` on an
+  active customer is 422.
+- **Retries.** A failed send is retried with exponential backoff (2s doubling up to 5 min). After 12 attempts
+  (about 23 minutes) the event is marked **FAILED** and logged at ERROR; it keeps its payload so it can be resent
+  once the cause is fixed:
+  `UPDATE outbox_event SET status = 'PENDING', attempts = 0, next_attempt_at = now() WHERE id = '<id>';`
+  Giving up (instead of retrying forever) makes a stuck event visible instead of hiding it in endless retries.
+- **Personal data.** The payload carries name, CPF and credit info, so it is AES-256-GCM encrypted in the table
+  (`OUTBOX_ENCRYPTION_KEY`, always set outside local development) and **cleared as soon as the event is SENT**.
+  SENT rows (without payload) are kept 7 days for debugging, then purged by a daily job.
 
 ### Card processor: product choice, card data and encryption
 
@@ -168,8 +185,9 @@ null and `"cardInfoAvailable"` is true.
   be cancelled after the card was issued. The status can be up to 10 minutes old (the cache TTL); that's fine
   because products change rarely and not without notice. If the catalog can't answer, the card is still returned
   with `product.status: null`.
-- **No authentication yet**: the card API is meant to be internal (only rpe-client-manager calls it) and is open.
-  Before exposing it, it needs service-to-service authentication (e.g. a client-credentials token or mTLS).
+- **No authentication**: the challenge only requires authentication on rpe-client-manager. The card API is
+  internal (only rpe-client-manager calls it) and open; exposing it would need service-to-service authentication
+  (e.g. a client-credentials token or mTLS).
 
 ### Independent services, one database
 

@@ -8,7 +8,6 @@ import com.rpe.clientmanager.exception.DuplicateCpfException;
 import com.rpe.clientmanager.exception.InvalidBirthDateException;
 import com.rpe.clientmanager.exception.StatusChangeNotAllowedException;
 import com.rpe.clientmanager.repository.CustomerRepository;
-import com.rpe.clientmanager.exception.CardProductionUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -124,16 +123,6 @@ class CustomerServiceImplTest {
         assertThat(event.getValue().customerName()).isEqualTo("Maria Silva");
         assertThat(event.getValue().cpf()).isEqualTo("12345678909");
         assertThat(event.getValue().creditInfo()).isEqualTo("score=780");
-    }
-
-    @Test
-    void createFailsWhenCardProductionCantBePublishedSoTheTransactionRollsBack() {
-        when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        doThrow(new CardProductionUnavailableException(new RuntimeException("sqs down")))
-                .when(cardProductionPublisher).publish(any());
-
-        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE, "score=780"))
-                .isInstanceOf(CardProductionUnavailableException.class);
     }
 
     @Test

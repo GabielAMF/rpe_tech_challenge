@@ -50,7 +50,7 @@ public class CustomerServiceImpl implements CustomerService {
         cpfPolicy.ensureAvailable(cpf);
         // saveAndFlush so the id and audit timestamps exist before the event is built and the customer returned.
         Customer customer = customerRepository.saveAndFlush(new Customer(name, cpf, birthDate));
-        // Inside the transaction: if publishing throws, the customer is rolled back (see SqsCardProductionPublisher).
+        // Same transaction: the customer and its card production request (outbox) are committed together.
         cardProductionPublisher.publish(CardProductionRequested.of(customer, creditInfo, clock.instant()));
         log.info("Created customer id={} cpf={} and requested card production", customer.getId(), cpf.masked());
         return customer;

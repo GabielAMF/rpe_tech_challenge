@@ -27,7 +27,8 @@ How the services talk (ask before adding any other call):
 - rpe_client_manager → HTTP → rpe_card_processor `GET /api/v1/customers/{customerId}/card` (card + product for
   `GET /customers/{id}`).
 - rpe_card_processor → HTTP → rpe_catalog `GET /api/v1/products/{id}` (cached in Redis).
-- Only rpe_client_manager requires a JWT. rpe_card_processor's API is open, internal-only (a documented gap).
+- Only rpe_client_manager requires a JWT (the challenge only asks for auth there). rpe_card_processor's API is open,
+  internal-only — a scope choice, not a to-do.
 
 ### rpe_catalog
 
@@ -74,10 +75,17 @@ Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}
   (disabled) until the real rule is confirmed.
 - Personal data: logs only carry the customer id and `Cpf.masked()` (`Cpf.toString()` is masked too). Never log
   names, birth dates, full CPFs or raw database constraint messages (they contain the duplicated value).
-- Card production: `create` publishes `CardProductionRequested` (plain JSON, no Java type header — see
-  `SqsConfig`) through the `CardProductionPublisher` interface, inside the transaction; a failed/timed-out send
-  (`app.sqs.send-timeout`) → 503 and rollback. The record is the message contract with rpe_card_processor;
-  its `toString()` hides personal data. `TODO(outbox)` marks the planned transactional outbox.
+- Card production uses a **transactional outbox**: `create` calls `CardProductionPublisher` (impl
+  `service/OutboxCardProductionPublisher`, `Propagation.MANDATORY`), which saves the `CardProductionRequested` JSON
+  as an `OutboxEvent` in the customer's transaction — no SQS call in the request, no 503. `service/OutboxRelay`
+  (`@Scheduled`, `app.outbox.poll-interval`) locks due PENDING rows (`FOR UPDATE SKIP LOCKED`, one transaction per
+  batch, stops at the first failure) and sends them via `OutboxEventSender` → `messaging/SqsOutboxEventSender`
+  (plain JSON, no Java type header — see `SqsConfig`; `app.sqs.send-timeout` per send). Retry rules live in
+  `domain/OutboxRetryPolicy` + `OutboxEvent.recordFailure` (backoff, then FAILED after `max-attempts`; FAILED keeps
+  the payload for a manual resend, SQL in README). Payload is AES-GCM encrypted (`PayloadCipher`,
+  `repository/converter/EncryptedStringConverter`, `app.outbox.encryption-key`) and nulled on SENT; `OutboxPurger`
+  deletes SENT rows after `app.outbox.retention`. Delivery is at least once with a stable `eventId`; the consumer
+  de-duplicates. `CardProductionRequested` is the message contract; its `toString()` hides personal data.
 - `GET /customers/{id}` → `CustomerService.getDetails` (not transactional: no DB transaction during HTTP) uses
   `CardInfoGateway` → Feign `CardProcessorClient` (`integrations.card-processor.base-url`,
   `localhost:8083` / `rpe-card-processor:8083` in compose; 1s connect / 2s read timeout). The gateway never throws: 404 → no card yet, any other failure → unavailable.
@@ -200,7 +208,7 @@ All configuration in `application.yml` reads environment variables with localhos
   `git fetch` fail with `Permission denied (publickey)` — ask the user to run them (`! git push ...`).
   The user usually pulls after merging, so local `dev` normally already has the merge; check `git log dev`.
 - `TODO.md` (repo root) is the user's local to-do list and is gitignored. A to-do that must be committed goes in
-  the code as `TODO(topic): ...` plus a README note (e.g. `TODO(outbox)`).
+  the code as `TODO(topic): ...` plus a README note.
 
 ## Environment notes
 
@@ -220,19 +228,16 @@ Kept committed on purpose, to track what's missing. Update it when a branch is m
 
 Done and merged into `dev` (in order): catalog CRUD → exception consistency → remove Feign from catalog →
 status endpoints → SOLID refactor → client_manager JWT auth → customer CRUD → card production (SQS publish +
-aggregated GET) → catalog product seed → card_processor card production.
+aggregated GET) → catalog product seed → card_processor card production
+→ card_processor card API (WireMock test-only; validated end to end by the user in compose).
 
-In progress: `feature/card-processor-card-api` — card_processor's `GET /api/v1/customers/{customerId}/card` +
-`GlobalExceptionHandler`; client_manager points at the real service; WireMock container and stubs removed
-(WireMock is test-only now).
+In progress: `feature/client-manager-outbox` — transactional outbox + idempotency definitions (README
+"Transactional outbox and idempotency").
 
-Next:
-1. Integrated test in a real scenario: `docker compose down -v && docker compose --profile apps up --build -d`,
-   log in, create a customer (optionally `credit_info` = PLATINUM's id `9e5a2d7c-1b3f-4c8a-a6d4-7b9e1f3a5c2d`),
-   then `GET /customers/{id}` should show the real masked card and product. Also try the unhappy paths (card
-   processor stopped → `cardInfoAvailable: false`; catalog stopped → `product.status: null`; LocalStack down →
-   503 on create). Write the curls for the user.
-2. SOLID/structure review of the three services once step 1 is validated.
-3. Open improvement (local TODO.md #4, `TODO(outbox)`): transactional outbox replacing the synchronous SQS send
-   and its 503 in rpe_client_manager.
-4. Documented gap: rpe_card_processor's API has no service-to-service authentication.
+Next (agreed order):
+1. The user sends the full challenge requirements; check every one is covered.
+2. Integrated test from scratch (`docker compose down -v && docker compose --profile apps up --build -d
+   --remove-orphans`), including the unhappy paths: card processor stopped → `cardInfoAvailable: false`; catalog
+   stopped → `product.status: null` once the cache expires; LocalStack stopped → customer still created (201), the
+   event stays PENDING and is sent when LocalStack is back.
+3. Full SOLID/structure review of the three services (last, after all refactoring).
