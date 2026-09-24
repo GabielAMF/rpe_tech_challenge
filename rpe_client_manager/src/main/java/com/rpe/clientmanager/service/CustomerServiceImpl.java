@@ -2,6 +2,7 @@ package com.rpe.clientmanager.service;
 
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.Customer;
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.domain.CustomerStatus;
 import com.rpe.clientmanager.exception.CustomerNotFoundException;
 import com.rpe.clientmanager.exception.StatusChangeNotAllowedException;
@@ -45,12 +46,12 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     @Transactional
-    public Customer create(String name, Cpf cpf, LocalDate birthDate, String creditInfo) {
+    public Customer create(CustomerName name, Cpf cpf, LocalDate birthDate, String creditInfo) {
         birthDatePolicy.validate(birthDate);
         cpfPolicy.ensureAvailable(cpf);
         // saveAndFlush so the id and audit timestamps exist before the event is built and the customer returned.
         Customer customer = customerRepository.saveAndFlush(new Customer(name, cpf, birthDate));
-        // Inside the transaction: if publishing throws, the customer is rolled back (see SqsCardProductionPublisher).
+        // Same transaction: the customer and its card production request (outbox) are committed together.
         cardProductionPublisher.publish(CardProductionRequested.of(customer, creditInfo, clock.instant()));
         log.info("Created customer id={} cpf={} and requested card production", customer.getId(), cpf.masked());
         return customer;
@@ -58,7 +59,7 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     @Transactional
-    public Customer update(UUID id, String name, LocalDate birthDate, CustomerStatus status) {
+    public Customer update(UUID id, CustomerName name, LocalDate birthDate, CustomerStatus status) {
         Customer customer = getCustomer(id);
         boolean block = shouldBlock(customer, status);
         birthDatePolicy.validate(birthDate);

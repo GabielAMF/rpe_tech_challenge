@@ -1,0 +1,16 @@
+# Test-only overrides, merged on top of src/main/resources/application.yml.
+spring:
+  datasource:
+    # Tests use their own database (docker/postgres/init), never the one the compose applications use.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${TEST_DB_NAME:rpe_test}
+  cache:
+    redis:
+      # Tests stub the catalog; their cached products must not be seen by a running rpe-card-processor.
+      key-prefix: "rpe-card-processor-test::"
+app:
+  sqs:
+    # Tests listen on their own queue (created automatically), so they never consume the real queue's messages.
+    client-manager-queue: rpe-card-processor-test-queue
+    # The test queues have no DLQ of their own; the monitor is tested on its own.
+    dlq-monitor:
+      enabled: false

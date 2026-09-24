@@ -1,12 +1,12 @@
 package com.rpe.clientmanager.controller;
 
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.config.ClockConfig;
 import com.rpe.clientmanager.config.SecurityConfig;
 import com.rpe.clientmanager.config.SecurityProblemHandler;
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.CustomerStatus;
 import com.rpe.clientmanager.exception.CancelledCustomerExistsException;
-import com.rpe.clientmanager.exception.CardProductionUnavailableException;
 import com.rpe.clientmanager.exception.CustomerAlreadyActiveException;
 import com.rpe.clientmanager.exception.CustomerNotFoundException;
 import com.rpe.clientmanager.exception.StatusChangeNotAllowedException;
@@ -77,7 +77,7 @@ class CustomerControllerTest {
 
     @Test
     void getReturnsCustomerWithCardAndProduct() throws Exception {
-        CardInfo card = new CardInfo(CARD_ID, "ISSUED", "**** **** **** 1234",
+        CardInfo card = new CardInfo(CARD_ID, "ATIVO", "**** **** **** 1234",
                 new CardInfo.Product(PRODUCT_ID, "GOLD", "Gold card", "ATIVO"), NOW);
         when(customerService.getDetails(ID)).thenReturn(new CustomerDetails(customer(ID), CardLookup.found(card)));
 
@@ -126,7 +126,7 @@ class CustomerControllerTest {
 
     @Test
     void postNormalizesCpfAndReturnsLocation() throws Exception {
-        when(customerService.create("Maria Silva", new Cpf("12345678909"), BIRTH_DATE, "score=780")).thenReturn(customer(ID));
+        when(customerService.create(new CustomerName("Maria Silva"), new Cpf("12345678909"), BIRTH_DATE, "score=780")).thenReturn(customer(ID));
 
         mockMvc.perform(post("/api/v1/customers").with(USER)
                         .contentType(MediaType.APPLICATION_JSON).content(NEW_CUSTOMER))
@@ -163,20 +163,8 @@ class CustomerControllerTest {
     }
 
     @Test
-    void postReturns503WhenCardProductionIsUnavailable() throws Exception {
-        when(customerService.create(anyString(), any(Cpf.class), any(), anyString()))
-                .thenThrow(new CardProductionUnavailableException(new RuntimeException("sqs down")));
-
-        mockMvc.perform(post("/api/v1/customers").with(USER)
-                        .contentType(MediaType.APPLICATION_JSON).content(NEW_CUSTOMER))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("CARD_PRODUCTION_UNAVAILABLE"))
-                .andExpect(jsonPath("$.detail").value(not(containsString("sqs down"))));
-    }
-
-    @Test
     void postWithCpfOfCancelledCustomerReturns409WithCustomerId() throws Exception {
-        when(customerService.create(anyString(), any(Cpf.class), any(), anyString()))
+        when(customerService.create(any(CustomerName.class), any(Cpf.class), any(), anyString()))
                 .thenThrow(new CancelledCustomerExistsException(ID, CPF));
 
         mockMvc.perform(post("/api/v1/customers").with(USER)
@@ -188,7 +176,7 @@ class CustomerControllerTest {
 
     @Test
     void putPassesOptionalStatusAndIgnoresCpf() throws Exception {
-        when(customerService.update(ID, "Maria Silva", BIRTH_DATE, CustomerStatus.BLOQUEADO)).thenReturn(customer(ID));
+        when(customerService.update(ID, new CustomerName("Maria Silva"), BIRTH_DATE, CustomerStatus.BLOQUEADO)).thenReturn(customer(ID));
 
         mockMvc.perform(put("/api/v1/customers/{id}", ID).with(USER)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -197,12 +185,12 @@ class CustomerControllerTest {
                                 """))
                 .andExpect(status().isOk());
 
-        verify(customerService).update(ID, "Maria Silva", BIRTH_DATE, CustomerStatus.BLOQUEADO);
+        verify(customerService).update(ID, new CustomerName("Maria Silva"), BIRTH_DATE, CustomerStatus.BLOQUEADO);
     }
 
     @Test
     void putWithDisallowedStatusReturns422() throws Exception {
-        when(customerService.update(eq(ID), anyString(), any(), eq(CustomerStatus.ATIVO)))
+        when(customerService.update(eq(ID), any(CustomerName.class), any(), eq(CustomerStatus.ATIVO)))
                 .thenThrow(new StatusChangeNotAllowedException(CustomerStatus.ATIVO));
 
         mockMvc.perform(put("/api/v1/customers/{id}", ID).with(USER)

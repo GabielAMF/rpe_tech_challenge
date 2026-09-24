@@ -2,6 +2,7 @@ package com.rpe.clientmanager.service;
 
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.Customer;
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.domain.CustomerStatus;
 
 import java.time.LocalDate;
@@ -22,20 +23,19 @@ public interface CustomerService {
     CustomerDetails getDetails(UUID id);
 
     /**
-     * Creates an ATIVO customer and requests card production for it. {@code creditInfo} only travels in the
-     * card production request; it is not stored here.
+     * Creates an ATIVO customer and requests card production for it: the request is saved in the outbox in the
+     * same transaction and sent to rpe_card_processor asynchronously. {@code creditInfo} only travels in that
+     * request (encrypted in the outbox until sent); it is not stored with the customer.
      *
      * @throws com.rpe.clientmanager.exception.BusinessRuleException if the CPF is taken
-     * @throws com.rpe.clientmanager.exception.CardProductionUnavailableException if the request can't be sent
-     *         (the customer is then not created)
      */
-    Customer create(String name, Cpf cpf, LocalDate birthDate, String creditInfo);
+    Customer create(CustomerName name, Cpf cpf, LocalDate birthDate, String creditInfo);
 
     /**
      * Changes name and birth date. {@code status} is optional and may only be BLOQUEADO (or the current status,
      * which changes nothing); cancelling and activating have their own operations.
      */
-    Customer update(UUID id, String name, LocalDate birthDate, CustomerStatus status);
+    Customer update(UUID id, CustomerName name, LocalDate birthDate, CustomerStatus status);
 
     /** Soft delete: marks the customer CANCELADO. Idempotent. */
     void cancel(UUID id);

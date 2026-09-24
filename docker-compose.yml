@@ -9,13 +9,17 @@ x-app-env: &app-env
   AWS_REGION: ${AWS_REGION:-us-east-1}
   AWS_SQS_ENDPOINT: http://localstack:4566
   CLIENT_MANAGER_QUEUE: ${CLIENT_MANAGER_QUEUE:-rpe-client-manager-queue}
-  EXTERNAL_API_BASE_URL: http://wiremock:8080
+
+# Actuator health, checked with busybox wget (the alpine JRE image has no curl). start_period covers JVM startup.
+x-app-healthcheck: &app-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 60s
 
 x-infra-deps: &infra-deps
   postgres:
     condition: service_healthy
-  wiremock:
-    condition: service_started
 
 services:
   postgres:
@@ -29,6 +33,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Creates rpe_test (used by the automated tests) when the volume is new.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -64,16 +70,6 @@ services:
       timeout: 5s
       retries: 20
 
-  wiremock:
-    image: wiremock/wiremock:3.13.2
-    container_name: rpe-wiremock
-    command: ["--global-response-templating", "--verbose"]
-    ports:
-      - "8081:8080"
-    volumes:
-      - ./docker/wiremock/mappings:/home/wiremock/mappings:ro
-      - ./docker/wiremock/__files:/home/wiremock/__files:ro
-
   # Kafka (KRaft mode, no Zookeeper) - uncomment when needed, along with spring-kafka in pom.xml.
   # kafka:
   #   image: apache/kafka:3.9.1
@@ -94,11 +90,10 @@ services:
   #     KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
   # ---------------------------------------------------------------------------
-  # Applications. Only started with: docker compose --profile apps up --build
+  # Applications. `docker compose up --build` starts them together with the infrastructure.
   # Inside the network they reach each other by service name, e.g. http://rpe-catalog:8080
   # ---------------------------------------------------------------------------
   rpe-catalog:
-    profiles: ["apps"]
     build: ./rpe_catalog
     container_name: rpe-catalog
     ports:
@@ -106,13 +101,15 @@ services:
     environment:
       <<: *app-env
       SERVER_PORT: 8080
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
     # The catalog calls no other service, so it only needs the database.
     depends_on:
       postgres:
         condition: service_healthy
 
   rpe-client-manager:
-    profiles: ["apps"]
     build: ./rpe_client_manager
     container_name: rpe-client-manager
     ports:
@@ -120,15 +117,17 @@ services:
     environment:
       <<: *app-env
       SERVER_PORT: 8082
-      # rpe-card-processor isn't implemented yet: its API is stubbed by WireMock.
-      CARD_PROCESSOR_BASE_URL: http://wiremock:8080
+      CARD_PROCESSOR_BASE_URL: http://rpe-card-processor:8083
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep -q UP"]
+    # rpe-card-processor isn't a dependency: without it, GET /customers/{id} still answers (without the card).
     depends_on:
       <<: *infra-deps
       localstack:
         condition: service_healthy
 
   rpe-card-processor:
-    profiles: ["apps"]
     build: ./rpe_card_processor
     container_name: rpe-card-processor
     ports:
@@ -138,11 +137,17 @@ services:
       SERVER_PORT: 8083
       # Only the card processor caches.
       REDIS_HOST: redis
+      CATALOG_BASE_URL: http://rpe-catalog:8080
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q UP"]
     depends_on:
       <<: *infra-deps
       redis:
         condition: service_healthy
       localstack:
+        condition: service_healthy
+      rpe-catalog:
         condition: service_healthy
 
 volumes:

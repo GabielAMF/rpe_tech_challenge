@@ -1,0 +1,1505 @@
+{
+  "info": {
+    "_postman_id": "e46a0bc5-6817-4a92-ad51-627a25edc7c2",
+    "name": "RPEChallenge",
+    "description": "End-to-end checks for rpe_catalog (8080), rpe_client_manager (8082) and rpe_card_processor (8083) running with `docker compose up --build -d --wait`.\n\nRun folders 0-4 in order with the collection runner: requests save ids and tokens into collection variables for the next ones, and every request has tests. Folder 5 is manual (containers must be stopped/started). Client manager requests use the bearer token saved by \"Login admin\".",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "Catalog health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{catalogUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Client manager health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Card processor health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cardProcessorUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "All three services must be UP (`docker compose up --build -d --wait`)."
+    },
+    {
+      "name": "1. Authentication (Portador)",
+      "item": [
+        {
+          "name": "Request without token -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{goldProductId}}",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"code UNAUTHORIZED\", () => pm.expect(pm.response.json().code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login wrong password -> 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"admin\",\n    \"password\": \"wrong-pass\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"code INVALID_CREDENTIALS\", () => pm.expect(pm.response.json().code).to.eql(\"INVALID_CREDENTIALS\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login admin (saves token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"admin\",\n    \"password\": \"admin12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"returns a bearer token\", () => pm.expect(body.accessToken).to.be.a(\"string\"));",
+                  "pm.collectionVariables.set(\"token\", body.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create USER (as admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/auth/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{testUsername}}\",\n    \"password\": \"tester12345\",\n    \"role\": \"USER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('testUsername', 'tester' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"role USER, no password\", () => {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.role).to.eql(\"USER\");",
+                  "    pm.expect(b).to.not.have.property(\"password\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login USER (saves userToken)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{testUsername}}\",\n    \"password\": \"tester12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"userToken\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "USER creates a user -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/auth/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"x2\",\n    \"password\": \"x2345678\",\n    \"role\": \"USER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"code FORBIDDEN\", () => pm.expect(pm.response.json().code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Produto Service (Catalog)",
+      "item": [
+        {
+          "name": "Get seeded GOLD",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/{{goldProductId}}",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test(\"GOLD, ATIVO, audit fields\", () => {",
+                  "    pm.expect(b.name).to.eql(\"GOLD\");",
+                  "    pm.expect(b.status).to.eql(\"ATIVO\");",
+                  "    pm.expect(b.createdAt).to.be.a(\"string\");",
+                  "    pm.expect(b.updatedAt).to.be.a(\"string\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create product (name normalized)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{catalogUrl}}/api/v1/products",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"  {{productName}}  \",\n    \"description\": \"QA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('productName', 'test card ' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test(\"name trimmed and upper-cased\", () => pm.expect(b.name).to.eql(pm.collectionVariables.get(\"productName\").toUpperCase()));",
+                  "pm.test(\"ATIVO\", () => pm.expect(b.status).to.eql(\"ATIVO\"));",
+                  "pm.collectionVariables.set(\"productId\", b.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create duplicate name -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{catalogUrl}}/api/v1/products",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"{{productName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"code PRODUCT_NAME_ALREADY_EXISTS\", () => pm.expect(pm.response.json().code).to.eql(\"PRODUCT_NAME_ALREADY_EXISTS\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{catalogUrl}}/api/v1/products/{{productId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"{{productName}}\",\n    \"description\": \"changed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"description changed\", () => pm.expect(pm.response.json().description).to.eql(\"changed\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel product -> 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/{{productId}}",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel again -> 204 (idempotent)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/{{productId}}",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get cancelled product",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/{{productId}}",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"CANCELADO\", () => pm.expect(pm.response.json().status).to.eql(\"CANCELADO\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create with cancelled name -> 409 + productId",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{catalogUrl}}/api/v1/products",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"{{productName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"code CANCELLED_PRODUCT_EXISTS\", () => pm.expect(pm.response.json().code).to.eql(\"CANCELLED_PRODUCT_EXISTS\"));",
+                  "pm.test(\"points to the cancelled product\", () => pm.expect(pm.response.json().productId).to.eql(pm.collectionVariables.get(\"productId\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate product",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/{{productId}}/activate",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"ATIVO\", () => pm.expect(pm.response.json().status).to.eql(\"ATIVO\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate again -> 422",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/{{productId}}/activate",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"code PRODUCT_ALREADY_ACTIVE\", () => pm.expect(pm.response.json().code).to.eql(\"PRODUCT_ALREADY_ACTIVE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid id -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/not-a-uuid",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown id -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{catalogUrl}}/api/v1/products/{{$guid}}",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"code PRODUCT_NOT_FOUND\", () => pm.expect(pm.response.json().code).to.eql(\"PRODUCT_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Card issuance (Portador -> SQS -> Cartao -> Produto)",
+      "item": [
+        {
+          "name": "Create customer with PLATINUM",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Maria Silva\",\n    \"cpf\": \"{{cpf}}\",\n    \"birthDate\": \"1990-05-20\",\n    \"credit_info\": \"{{platinumProductId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('cpf', Array.from({length: 11}, () => Math.floor(Math.random() * 10)).join(''));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test(\"ATIVO\", () => pm.expect(b.status).to.eql(\"ATIVO\"));",
+                  "pm.collectionVariables.set(\"customerId\", b.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get customer + card + product",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{customerId}}",
+            "description": "Waits `cardWaitMs` before sending. If the card is still null, send it again."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// the card is produced asynchronously (outbox -> SQS -> card processor)",
+                  "setTimeout(() => {}, Number(pm.collectionVariables.get('cardWaitMs')));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test(\"card service reachable\", () => pm.expect(b.cardInfoAvailable).to.be.true);",
+                  "pm.test(\"card produced with a masked number\", () => {",
+                  "    pm.expect(b.card).to.be.an(\"object\");",
+                  "    pm.expect(b.card.maskedNumber).to.match(/^\\*{4} \\*{4} \\*{4} \\d{4}$/);",
+                  "});",
+                  "pm.test(\"product PLATINUM, ATIVO\", () => {",
+                  "    pm.expect(b.card.product.name).to.eql(\"PLATINUM\");",
+                  "    pm.expect(b.card.product.status).to.eql(\"ATIVO\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Card processor: card by customer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cardProcessorUrl}}/api/v1/customers/{{customerId}}/card",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test(\"only the masked number leaves the service\", () => {",
+                  "    pm.expect(b.maskedNumber).to.match(/^\\*{4} \\*{4} \\*{4} \\d{4}$/);",
+                  "    pm.expect(b).to.not.have.any.keys(\"number\", \"cvv\", \"expiry\", \"holderName\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Card processor: no card -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cardProcessorUrl}}/api/v1/customers/{{$guid}}/card",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"code CARD_NOT_FOUND\", () => pm.expect(pm.response.json().code).to.eql(\"CARD_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Portador rules",
+      "item": [
+        {
+          "name": "Invalid CPF -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana\",\n    \"cpf\": \"12\",\n    \"birthDate\": \"1990-01-01\",\n    \"credit_info\": \"standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"code INVALID_CPF\", () => pm.expect(pm.response.json().code).to.eql(\"INVALID_CPF\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Birth date in the future -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana\",\n    \"cpf\": \"{{ruleCpf}}\",\n    \"birthDate\": \"2999-01-01\",\n    \"credit_info\": \"standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('ruleCpf', Array.from({length: 11}, () => Math.floor(Math.random() * 10)).join(''));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"code VALIDATION_ERROR\", () => pm.expect(pm.response.json().code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing credit_info -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana\",\n    \"cpf\": \"{{ruleCpf}}\",\n    \"birthDate\": \"1990-01-01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"code VALIDATION_ERROR\", () => pm.expect(pm.response.json().code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana\",\n    \"cpf\": \"{{ruleCpf}}\",\n    \"birthDate\": \"1990-01-01\",\n    \"credit_info\": \"standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"ruleCustomerId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Same CPF -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana\",\n    \"cpf\": \"{{ruleCpf}}\",\n    \"birthDate\": \"1990-01-01\",\n    \"credit_info\": \"standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"code CPF_ALREADY_EXISTS\", () => pm.expect(pm.response.json().code).to.eql(\"CPF_ALREADY_EXISTS\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update to BLOQUEADO",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{ruleCustomerId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana B\",\n    \"birthDate\": \"1990-01-01\",\n    \"status\": \"BLOQUEADO\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"BLOQUEADO\", () => pm.expect(pm.response.json().status).to.eql(\"BLOQUEADO\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update to CANCELADO -> 422",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{ruleCustomerId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana B\",\n    \"birthDate\": \"1990-01-01\",\n    \"status\": \"CANCELADO\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"code STATUS_CHANGE_NOT_ALLOWED\", () => pm.expect(pm.response.json().code).to.eql(\"STATUS_CHANGE_NOT_ALLOWED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel customer -> 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{ruleCustomerId}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel again -> 204 (idempotent)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{ruleCustomerId}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelled customer's CPF -> 409 + customerId",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Ana\",\n    \"cpf\": \"{{ruleCpf}}\",\n    \"birthDate\": \"1990-01-01\",\n    \"credit_info\": \"standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"code CANCELLED_CUSTOMER_EXISTS\", () => pm.expect(pm.response.json().code).to.eql(\"CANCELLED_CUSTOMER_EXISTS\"));",
+                  "pm.test(\"points to the cancelled customer\", () => pm.expect(pm.response.json().customerId).to.eql(pm.collectionVariables.get(\"ruleCustomerId\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate customer",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{ruleCustomerId}}/activate"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"ATIVO\", () => pm.expect(pm.response.json().status).to.eql(\"ATIVO\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate again -> 422",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{ruleCustomerId}}/activate"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"code CUSTOMER_ALREADY_ACTIVE\", () => pm.expect(pm.response.json().code).to.eql(\"CUSTOMER_ALREADY_ACTIVE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown customer -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{$guid}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"code CUSTOMER_NOT_FOUND\", () => pm.expect(pm.response.json().code).to.eql(\"CUSTOMER_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Resilience (manual, see descriptions)",
+      "item": [
+        {
+          "name": "6a-1 Create customer (card processor stopped)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Joao\",\n    \"cpf\": \"{{resilienceCpf}}\",\n    \"birthDate\": \"1985-03-10\",\n    \"credit_info\": \"standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "First: `docker compose stop rpe-card-processor`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('resilienceCpf', Array.from({length: 11}, () => Math.floor(Math.random() * 10)).join(''));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"resilienceCustomerId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6a-2 Get customer -> cardInfoAvailable false",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{resilienceCustomerId}}",
+            "description": "Card processor still stopped: the customer is returned without the card."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test(\"card unavailable, not hidden as 'no card'\", () => {",
+                  "    pm.expect(b.card).to.be.null;",
+                  "    pm.expect(b.cardInfoAvailable).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6a-3 Get customer after restart -> GOLD card",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{resilienceCustomerId}}",
+            "description": "`docker compose start rpe-card-processor`, wait ~25s: the message waited in the queue."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"GOLD card produced\", () => pm.expect(pm.response.json().card.product.name).to.eql(\"GOLD\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6b-1 Create customer (LocalStack stopped) -> 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{clientManagerUrl}}/api/v1/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Rita\",\n    \"cpf\": \"{{resilienceCpf}}\",\n    \"birthDate\": \"1992-07-01\",\n    \"credit_info\": \"standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "First: `docker compose stop localstack`. The event stays PENDING in the outbox."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('resilienceCpf', Array.from({length: 11}, () => Math.floor(Math.random() * 10)).join(''));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"resilienceCustomerId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6b-2 Get customer after LocalStack is back -> card",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{resilienceCustomerId}}",
+            "description": "`docker compose up -d --force-recreate --wait localstack`, wait ~40s for the outbox relay."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"card produced\", () => pm.expect(pm.response.json().card.maskedNumber).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6c Catalog stopped -> product snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{clientManagerUrl}}/api/v1/customers/{{customerId}}",
+            "description": "Uses the PLATINUM customer from folder 3. First: `docker compose stop rpe-catalog` and `docker exec rpe-redis redis-cli del \"rpe-card-processor::catalog-products::9e5a2d7c-1b3f-4c8a-a6d4-7b9e1f3a5c2d\"`. Start the catalog again afterwards (`docker compose start rpe-catalog`)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().card.product;",
+                  "pm.test(\"PLATINUM from the card's snapshot, status null\", () => {",
+                  "    pm.expect(p.name).to.eql(\"PLATINUM\");",
+                  "    pm.expect(p.status).to.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Not for the collection runner: each request needs a container stopped or started first, as its description says. The full steps (including the DLQ/redrive one, which needs `awslocal`) are in docs/TEST_PLAN.md, step 6."
+    }
+  ],
+  "variable": [
+    {
+      "key": "catalogUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "clientManagerUrl",
+      "value": "http://localhost:8082"
+    },
+    {
+      "key": "cardProcessorUrl",
+      "value": "http://localhost:8083"
+    },
+    {
+      "key": "goldProductId",
+      "value": "3f2b6c1e-8d4a-4f7b-9c2e-1a5d6e7f8a9b"
+    },
+    {
+      "key": "platinumProductId",
+      "value": "9e5a2d7c-1b3f-4c8a-a6d4-7b9e1f3a5c2d"
+    },
+    {
+      "key": "cardWaitMs",
+      "value": "3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    },
+    {
+      "key": "testUsername",
+      "value": ""
+    },
+    {
+      "key": "productId",
+      "value": ""
+    },
+    {
+      "key": "productName",
+      "value": ""
+    },
+    {
+      "key": "cpf",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": ""
+    },
+    {
+      "key": "ruleCpf",
+      "value": ""
+    },
+    {
+      "key": "ruleCustomerId",
+      "value": ""
+    },
+    {
+      "key": "resilienceCpf",
+      "value": ""
+    },
+    {
+      "key": "resilienceCustomerId",
+      "value": ""
+    }
+  ]
+}

@@ -32,8 +32,6 @@ import java.nio.charset.StandardCharsets;
 @EnableConfigurationProperties(SecurityProperties.class)
 public class SecurityConfig {
 
-    public static final String ROLES_CLAIM = "roles";
-
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProblemHandler problemHandler) throws Exception {
         return http
@@ -45,6 +43,7 @@ public class SecurityConfig {
                         // SecurityProblemHandler instead of GlobalExceptionHandler's catch-all.
                         .requestMatchers("/api/v1/auth/users/**").hasRole("ADMIN")
                         .requestMatchers("/actuator/health", "/actuator/info", "/error").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
@@ -79,7 +78,7 @@ public class SecurityConfig {
     /** Maps the {@code roles} claim (e.g. ["ADMIN"]) to Spring authorities (ROLE_ADMIN). */
     private static JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName(ROLES_CLAIM);
+        authorities.setAuthoritiesClaimName(JwtTokenService.ROLES_CLAIM);
         authorities.setAuthorityPrefix("ROLE_");
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(authorities);
