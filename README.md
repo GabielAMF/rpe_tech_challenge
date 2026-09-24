@@ -79,6 +79,12 @@ services that reference the product don't end up pointing at a missing record. A
 back with `POST /api/v1/products/{id}/activate`; status never changes through `PUT`, so each status change is
 an explicit action.
 
+### Seeded products
+
+The catalog starts with BLACK CARD, PREMIUM, GOLD and PLATINUM (Flyway `V2__seed_card_products.sql`) under fixed
+ids, so other services can reference them; GOLD is rpe-card-processor's default product. A name that already
+exists is skipped, so on a database that had a GOLD before the seed, that row keeps its own id.
+
 ### Normalized product names
 
 Names are stored trimmed and upper-cased and must be unique, so `" gold "`, `"Gold"` and `"GOLD"` are the
