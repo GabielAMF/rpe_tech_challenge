@@ -73,6 +73,17 @@ app:
   sqs:
     # Published by rpe_client_manager, consumed by rpe_card_processor.
     client-manager-queue: ${CLIENT_MANAGER_QUEUE:rpe-client-manager-queue}
+    # Where SQS moves a message after 3 failed receives (redrive policy in docker/localstack/init).
+    client-manager-dlq: ${CLIENT_MANAGER_DLQ:rpe-client-manager-queue-dlq}
+    # Backoff after each failed attempt (SqsConfig): 5s, 20s, 80s; the 4th receive moves it to the DLQ instead.
+    retry:
+      initial-backoff: ${SQS_RETRY_INITIAL_BACKOFF:5s}
+      multiplier: 4
+      max-backoff: ${SQS_RETRY_MAX_BACKOFF:5m}
+    # Logs at ERROR while the DLQ isn't empty (DeadLetterQueueMonitor).
+    dlq-monitor:
+      enabled: true
+      interval: ${DLQ_MONITOR_INTERVAL:1m}
 
 management:
   endpoints:

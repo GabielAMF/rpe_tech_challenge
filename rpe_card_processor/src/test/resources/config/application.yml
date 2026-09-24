@@ -3,3 +3,6 @@ app:
   sqs:
     # Tests listen on their own queue (created automatically), so they never consume the real queue's messages.
     client-manager-queue: rpe-card-processor-test-queue
+    # The test queues have no DLQ of their own; the monitor is tested on its own.
+    dlq-monitor:
+      enabled: false

@@ -1,6 +1,7 @@
 package com.rpe.cardprocessor.service;
 
 import com.rpe.cardprocessor.domain.Card;
+import com.rpe.cardprocessor.domain.CardProduct;
 import com.rpe.cardprocessor.exception.CardNotFoundException;
 import com.rpe.cardprocessor.exception.CatalogUnavailableException;
 import com.rpe.cardprocessor.repository.CardRepository;
@@ -12,7 +13,8 @@ import java.util.UUID;
 
 /**
  * Not transactional on purpose: the catalog lookup is an HTTP call and must not hold a database connection.
- * The product status is best effort, so a catalog outage never hides the card.
+ * The product comes from rpe_catalog (cached), so renames and status changes show up; a catalog outage never hides
+ * the card, it falls back to the snapshot stored with it.
  */
 @Slf4j
 @Service
@@ -26,20 +28,24 @@ public class CardQueryServiceImpl implements CardQueryService {
     public CardDetails findByCustomerId(UUID customerId) {
         Card card = cardRepository.findByCustomerId(customerId)
                 .orElseThrow(() -> new CardNotFoundException(customerId));
-        return new CardDetails(card, currentProductStatus(card.getProduct().id()));
+        return new CardDetails(card, currentProduct(card.getProduct()));
     }
 
-    private String currentProductStatus(UUID productId) {
+    private CatalogProduct currentProduct(CardProduct snapshot) {
         try {
-            return catalogGateway.findProduct(productId)
-                    .map(CatalogProduct::status)
-                    .orElseGet(() -> {
-                        log.warn("Product id={} of an issued card is no longer in rpe_catalog", productId);
-                        return null;
-                    });
+            return catalogGateway.findProduct(snapshot.id()).orElseGet(() -> {
+                log.warn("Product id={} of an issued card is no longer in rpe_catalog; using the card's snapshot",
+                        snapshot.id());
+                return fromSnapshot(snapshot);
+            });
         } catch (CatalogUnavailableException ex) {
-            log.warn("Status of product id={} unavailable: {}", productId, ex.getCause().toString());
-            return null;
+            log.warn("Product id={} unavailable, using the card's snapshot: {}", snapshot.id(), ex.getCause().toString());
+            return fromSnapshot(snapshot);
         }
+    }
+
+    /** Status unknown: the snapshot only says what the product was at issue time. */
+    private static CatalogProduct fromSnapshot(CardProduct snapshot) {
+        return new CatalogProduct(snapshot.id(), snapshot.name(), snapshot.description(), null);
     }
 }
