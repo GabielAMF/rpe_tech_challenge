@@ -31,7 +31,9 @@ CRUD for card products at `/api/v1/products` (`GET/PUT/DELETE /{id}`, `POST`, `P
 `ProductResponse` is the contract rpe_card_processor will consume. Status only changes through `DELETE`
 (soft delete → `CANCELADO`, idempotent) and `activate` (→ `ATIVO`; 422 if already active); `PUT` never touches it. Entities
 extend `domain/AuditableEntity` (`created_at`/`updated_at` via Spring Data JPA auditing). Ids are UUIDs.
-Product names are stored trimmed + upper-cased and are unique.
+Product names are stored trimmed + upper-cased and are unique. `V2__seed_card_products.sql` seeds BLACK CARD,
+PREMIUM, GOLD and PLATINUM with fixed ids (`ON CONFLICT DO NOTHING` on the name); GOLD
+`3f2b6c1e-8d4a-4f7b-9c2e-1a5d6e7f8a9b` is rpe_card_processor's default product.
 
 Layering (keep dependencies pointing inward):
 - `controller` owns the HTTP contract: request/response DTOs, `ProductMapper` (entity → `ProductResponse`),
