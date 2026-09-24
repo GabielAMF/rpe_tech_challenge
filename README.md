@@ -58,6 +58,11 @@ LocalStack creates `rpe-client-manager-queue` (and its `-dlq`) on startup via
 `docker/localstack/init/ready.d/01-create-queues.sh`. The services call each other for real (no stubs at
 runtime); WireMock is only used inside the tests.
 
+[`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) has a step-by-step manual test plan (curls) for the services running
+together, including the failure scenarios. The same checks are in the Postman collection
+[`docs/RPE-Challenge.postman_collection.json`](docs/RPE-Challenge.postman_collection.json) (Postman or Insomnia:
+import the file, then run folders 0–4 with the collection runner; folder 5 needs containers stopped by hand).
+
 ### Authentication (rpe-client-manager)
 
 Every rpe-client-manager endpoint except login needs a JWT. On startup the service creates an ADMIN user from
