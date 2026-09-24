@@ -10,6 +10,13 @@ x-app-env: &app-env
   AWS_SQS_ENDPOINT: http://localstack:4566
   CLIENT_MANAGER_QUEUE: ${CLIENT_MANAGER_QUEUE:-rpe-client-manager-queue}
 
+# Actuator health, checked with busybox wget (the alpine JRE image has no curl). start_period covers JVM startup.
+x-app-healthcheck: &app-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 60s
+
 x-infra-deps: &infra-deps
   postgres:
     condition: service_healthy
@@ -81,11 +88,10 @@ services:
   #     KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
   # ---------------------------------------------------------------------------
-  # Applications. Only started with: docker compose --profile apps up --build
+  # Applications. `docker compose up --build` starts them together with the infrastructure.
   # Inside the network they reach each other by service name, e.g. http://rpe-catalog:8080
   # ---------------------------------------------------------------------------
   rpe-catalog:
-    profiles: ["apps"]
     build: ./rpe_catalog
     container_name: rpe-catalog
     ports:
@@ -93,13 +99,15 @@ services:
     environment:
       <<: *app-env
       SERVER_PORT: 8080
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
     # The catalog calls no other service, so it only needs the database.
     depends_on:
       postgres:
         condition: service_healthy
 
   rpe-client-manager:
-    profiles: ["apps"]
     build: ./rpe_client_manager
     container_name: rpe-client-manager
     ports:
@@ -108,13 +116,16 @@ services:
       <<: *app-env
       SERVER_PORT: 8082
       CARD_PROCESSOR_BASE_URL: http://rpe-card-processor:8083
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep -q UP"]
+    # rpe-card-processor isn't a dependency: without it, GET /customers/{id} still answers (without the card).
     depends_on:
       <<: *infra-deps
       localstack:
         condition: service_healthy
 
   rpe-card-processor:
-    profiles: ["apps"]
     build: ./rpe_card_processor
     container_name: rpe-card-processor
     ports:
@@ -125,6 +136,9 @@ services:
       # Only the card processor caches.
       REDIS_HOST: redis
       CATALOG_BASE_URL: http://rpe-catalog:8080
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q UP"]
     depends_on:
       <<: *infra-deps
       redis:
@@ -132,7 +146,7 @@ services:
       localstack:
         condition: service_healthy
       rpe-catalog:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   postgres-data:

@@ -43,12 +43,15 @@ All services use the same database. Each one keeps its own Flyway history table
 ## Running
 
 ```bash
+# the whole environment (infrastructure + the three services) with one command
+docker compose up --build            # add -d to run in the background, --wait to block until all are healthy
+
 # infrastructure only, then run the services from the IDE or with maven
-docker compose up -d
+docker compose up -d postgres redis localstack
 cd rpe_catalog && ./mvnw spring-boot:run
 
-# infrastructure + all three services in containers
-docker compose --profile apps up --build
+# reset everything (drops the database volume)
+docker compose down -v
 ```
 
 LocalStack creates `rpe-client-manager-queue` (and its `-dlq`) on startup via

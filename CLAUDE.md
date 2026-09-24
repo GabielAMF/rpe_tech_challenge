@@ -152,7 +152,8 @@ These were agreed with the user while building rpe_catalog and rpe_client_manage
 
 - `docker/localstack/init/ready.d/01-create-queues.sh` creates `rpe-client-manager-queue` + `-dlq`
   (redrive after 3 receives). The queue name comes from `CLIENT_MANAGER_QUEUE`.
-- The three apps are under the compose profile `apps`; they share env via the `x-app-env` anchor and
+- The three apps start with the infrastructure (no profile) and have actuator healthchecks (`x-app-healthcheck`,
+  busybox `wget`); card-processor waits for the catalog to be healthy. They share env via the `x-app-env` anchor and
   reach each other by service name (e.g. `http://rpe-catalog:8080`).
 
 ### Shared database + Flyway
@@ -191,9 +192,9 @@ Because the tables share one schema, table names must not clash across services.
 ## Commands
 
 ```bash
-docker compose up -d                       # infrastructure only
-docker compose --profile apps up --build   # infrastructure + the 3 services
-docker compose down -v                     # reset (drops the postgres volume)
+docker compose up --build                         # everything: infrastructure + the 3 services
+docker compose up -d postgres redis localstack    # infrastructure only (to run services with mvnw/IDE)
+docker compose down -v                            # reset (drops the postgres volume)
 
 cd rpe_<service> && ./mvnw spring-boot:run # run one service locally
 cd rpe_<service> && ./mvnw test            # the contextLoads test needs the infra running
@@ -202,7 +203,9 @@ cd rpe_<service> && ./mvnw -B package -DskipTests         # build the jar (same 
 ```
 
 The `@SpringBootTest` context-load tests connect to the real Postgres (plus Redis/LocalStack for the
-services that use them), so run `docker compose up -d` first.
+services that use them), so start the infrastructure first. Stop the app containers
+(`docker compose stop rpe-catalog rpe-client-manager rpe-card-processor`) before running a service with `mvnw`:
+they use the same ports, and the card-processor container would consume the queue.
 
 All configuration in `application.yml` reads environment variables with localhost defaults.
 
@@ -239,17 +242,16 @@ test-only) → client_manager transactional outbox + idempotency definitions.
 
 The full challenge requirements were checked on 2026-09-24; the gaps are the items below.
 
-In progress: `feature/openapi-docs` — springdoc/Swagger in all three services + README naming note.
+In progress: `chore/compose-single-command` — no `apps` profile, app healthchecks.
+(`feature/openapi-docs` merged.)
 
 Next (agreed order, one branch each):
-1. Single-command startup: remove the `apps` compose profile so `docker compose up --build` starts everything
-   (infra only: `docker compose up -d postgres redis localstack`); update README/CLAUDE.md commands.
-2. rpe_card_processor, SQS retry + DLQ made explicit: `VisibilityTimeout` set in the LocalStack init script,
+1. rpe_card_processor, SQS retry + DLQ made explicit: `VisibilityTimeout` set in the LocalStack init script,
    exponential backoff on failure (change the message visibility by receive count, e.g. 5s/20s/60s), a DLQ listener
    logging dead messages at ERROR (ids only), README note on redriving the DLQ. Same branch: `GET .../card` reads
    the full product (name, description, status) from the catalog through the cache, falling back to the card's
    snapshot if the catalog is down (challenge: "ao criar/consultar o cartão, obter detalhes do produto").
-3. Integrated test from scratch (`docker compose down -v` + startup), including the unhappy paths: card processor
+2. Integrated test from scratch (`docker compose down -v` + startup), including the unhappy paths: card processor
    stopped → `cardInfoAvailable: false`; catalog stopped → snapshot product; LocalStack stopped → customer still
    created (201), event PENDING until LocalStack is back.
-4. Full SOLID/structure review of the three services (last, after all refactoring).
+3. Full SOLID/structure review of the three services (last, after all refactoring).
