@@ -45,6 +45,7 @@ public class SecurityConfig {
                         // SecurityProblemHandler instead of GlobalExceptionHandler's catch-all.
                         .requestMatchers("/api/v1/auth/users/**").hasRole("ADMIN")
                         .requestMatchers("/actuator/health", "/actuator/info", "/error").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
