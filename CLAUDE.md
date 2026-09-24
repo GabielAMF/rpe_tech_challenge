@@ -19,11 +19,15 @@ sharing one local infrastructure stack defined in the root `docker-compose.yml`.
 | `rpe_client_manager/` | `rpe-client-manager` | `com.rpe.clientmanager` | 8082 | publishes to `rpe-client-manager-queue` |
 | `rpe_card_processor/` | `rpe-card-processor` | `com.rpe.cardprocessor` | 8083 | consumes `rpe-client-manager-queue`     |
 
-Package layout per service: `config`, `controller`, `service`, `repository`, `domain`, `client`
-(Feign clients; not in catalog), `messaging` (SQS; not in catalog), `exception` (catalog so far). Empty folders hold a `.gitkeep`.
+Package layout per service: `config`, `controller`, `service`, `repository`, `domain`, `exception`, `client`
+(Feign; not in catalog), `messaging` (SQS; not in catalog). Empty folders hold a `.gitkeep`.
 
-Which service calls which over HTTP is not defined yet — ask before wiring it (known so far:
-rpe_card_processor will read products from rpe_catalog).
+How the services talk (ask before adding any other call):
+- rpe_client_manager → SQS `rpe-client-manager-queue` → rpe_card_processor (card production request).
+- rpe_client_manager → HTTP → rpe_card_processor `GET /api/v1/customers/{customerId}/card` (card + product for
+  `GET /customers/{id}`). **Still WireMock** until `feature/card-processor-card-api` exists (see Status).
+- rpe_card_processor → HTTP → rpe_catalog `GET /api/v1/products/{id}` (cached in Redis).
+- Only rpe_client_manager requires a JWT. rpe_card_processor's API is open, internal-only (a documented gap).
 
 ### rpe_catalog
 
@@ -97,6 +101,26 @@ event (`uk_card_source_event`); a repeat returns the existing card.
 - Spring-context tests listen on `rpe-card-processor-test-queue` (`src/test/resources/config/application.yml`), and
   the end-to-end test on a per-run queue, so tests never consume the real queue.
 
+## Conventions to follow in new code
+
+These were agreed with the user while building rpe_catalog and rpe_client_manager; keep new code consistent.
+- Ids are UUIDs (`GenerationType.UUID`, `uuid` column), also in URLs.
+- Action endpoints use POST (`POST /{id}/activate`), never PATCH. `DELETE` is a soft delete to CANCELADO and is
+  idempotent (204 again); status changes only through dedicated endpoints/methods, not a generic PUT field.
+- Normalized input becomes a value object record that validates in its constructor (`ProductName`, `Username`,
+  `Cpf`); rules that need the database live in a `...Policy` component; services are interface + `...Impl` and
+  work with domain types only; a `...Mapper` in `controller` builds response DTOs.
+- Errors: add an `ErrorCode` + `CustomException`/`BusinessRuleException` subclass. Conflicts that point to a
+  cancelled record return its id (`productId`/`customerId`) and say how to reactivate it. 422 for business-rule
+  violations on a valid request (e.g. already active).
+- Personal/sensitive data (names, CPF, birth date, credit info, card number/expiry/CVV) never reaches logs or error
+  messages; records carrying it override `toString()`.
+- Tests: unit tests per domain/policy/service class; `@WebMvcTest` for controllers (in client_manager import
+  `SecurityConfig`, `SecurityProblemHandler`, `ClockConfig` and use `jwt()`); one `@SpringBootTest` end-to-end
+  test per flow against the real infrastructure; entity fixtures set `id`/timestamps with `ReflectionTestUtils`.
+- Every design decision with a trade-off gets a short entry in README "Project decisions"; CLAUDE.md is kept in
+  sync when behaviour or structure changes.
+
 ## Requirements the services must cover
 
 - Expose REST APIs and call other applications (Spring Cloud OpenFeign; external APIs stubbed by WireMock).
@@ -129,12 +153,15 @@ Because the tables share one schema, table names must not clash across services.
 
 ### Cross-cutting config conventions
 
-- The three `application.yml` files are near-identical copies (only card_processor has the Redis/cache
-  block; catalog also lacks `spring.cloud.aws`, `app.sqs` and `integrations`). A shared-config change must be applied to all three by hand.
+- The three `application.yml` files share the datasource/JPA/Flyway/actuator blocks, copied by hand: a
+  shared-config change must be applied to all three. Differences: client_manager adds `app.security`,
+  `app.customer`, SQS and Feign (`card-processor`); card_processor adds Redis cache, `app.card`, SQS and Feign
+  (`catalog`); catalog has none of those.
 - rpe_catalog only receives requests: it has no Feign, no WireMock test dependency and no Spring Cloud BOM.
   Don't add them back unless it starts calling another service.
-- Feign base URLs go under `integrations.<name>.base-url` (currently `integrations.external-api.base-url`,
-  env `EXTERNAL_API_BASE_URL`). WireMock is `localhost:8081` from the host but `wiremock:8080` inside compose.
+- Feign base URLs go under `integrations.<name>.base-url` (`card-processor` → `CARD_PROCESSOR_BASE_URL`,
+  `catalog` → `CATALOG_BASE_URL`), timeouts under `spring.cloud.openfeign.client.config.<name>`. WireMock is
+  `localhost:8081` from the host but `wiremock:8080` inside compose.
 - The queue name is injected from `app.sqs.client-manager-queue`. Adding a new queue means updating the
   LocalStack init script, the `x-app-env` anchor, and the `application.yml` of both sides.
 - Lombok is available (annotation processor configured); `wiremock-spring-boot` is a test dependency for
@@ -158,6 +185,46 @@ services that use them), so run `docker compose up -d` first.
 
 All configuration in `application.yml` reads environment variables with localhost defaults.
 
+## Git workflow
+
+- Work happens on branches cut from `dev`: `feature/...`, `chore/...`, `refactor/...`. The user opens a PR into
+  `dev`, and releases go `dev` → `master`. Never commit on `dev`/`master` directly.
+- Commit only when the user asks. Pushing is done by the user: this shell has no SSH agent, so `git push` and
+  `git fetch` fail with `Permission denied (publickey)` — ask the user to run them (`! git push ...`).
+  The user usually pulls after merging, so local `dev` normally already has the merge; check `git log dev`.
+- `TODO.md` (repo root) is the user's local to-do list and is gitignored. A to-do that must be committed goes in
+  the code as `TODO(topic): ...` plus a README note (e.g. `TODO(outbox)`).
+
 ## Environment notes
 
-- The developer works on Windows + WSL2. Maven is not installed globally — always use `./mvnw`.
+- The developer works on Windows + WSL2 with Docker Desktop. Maven is not installed globally — always use `./mvnw`.
+- Docker Desktop/WSL bind-mount glitch: after `stop`/`restart`, wiremock or localstack may fail with
+  "error mounting ... no such file or directory". Fix: `docker compose up -d --force-recreate <service>`.
+- LocalStack keeps nothing: after a restart the init script recreates the queues, but messages are gone.
+  rpe_card_processor won't start (its listener fails) if LocalStack is down.
+- Local login for rpe_client_manager: `admin` / `admin12345` (bootstrap user). `jq` is not installed in WSL
+  (the README uses it; the user is fine with that) — use `python3 -c` to parse JSON in commands.
+- Before `docker compose down -v`, the local database had a GOLD product with a random id, so card_processor's
+  default product id didn't match. A clean `down -v` + restart seeds GOLD with the fixed id.
+
+## Status and next steps (as of 2026-09-23)
+
+Done and merged into `dev` (in order): catalog CRUD → exception consistency → remove Feign from catalog →
+status endpoints → SOLID refactor → client_manager JWT auth → customer CRUD → card production (SQS publish +
+aggregated GET) → catalog product seed → card_processor card production (`feature/card-processor-card-production`,
+merged by the user on 2026-09-23).
+
+Next:
+1. `feature/card-processor-card-api`: in rpe_card_processor add `GET /api/v1/customers/{customerId}/card`
+   matching the contract rpe_client_manager already consumes (`client/dto/CardProcessorCardResponse`: `cardId`,
+   `status`, `maskedNumber`, `product{id,name,description,status}`, `createdAt`; 404 when no card). Gaps to
+   decide: the card's product snapshot (`CardProduct`) has no `status` — store it or read it through the cached
+   catalog gateway; card status is ATIVO/BLOQUEADO/CANCELADO (the WireMock stub says `ISSUED`). Copy
+   `GlobalExceptionHandler` from client_manager (safe DataIntegrity logging). Then point rpe_client_manager at the
+   real service (`CARD_PROCESSOR_BASE_URL`: `http://localhost:8083` default, `http://rpe-card-processor:8083` in
+   compose) and decide whether to keep or delete the WireMock card stub.
+2. Full test from scratch: `docker compose down -v && docker compose --profile apps up --build -d`, log in,
+   create a customer (optionally `credit_info` = PLATINUM's id `9e5a2d7c-1b3f-4c8a-a6d4-7b9e1f3a5c2d`), then
+   `GET /customers/{id}` should show the real masked card and product. Write the curls for the user.
+3. Open improvement (local TODO.md #4, `TODO(outbox)`): transactional outbox replacing the synchronous SQS send
+   and its 503 in rpe_client_manager.
