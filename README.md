@@ -59,7 +59,9 @@ LocalStack creates `rpe-client-manager-queue` (and its `-dlq`) on startup via
 runtime); WireMock is only used inside the tests.
 
 [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) has a step-by-step manual test plan (curls) for the services running
-together, including the failure scenarios.
+together, including the failure scenarios. The same checks are in the Postman collection
+[`docs/RPE-Challenge.postman_collection.json`](docs/RPE-Challenge.postman_collection.json) (Postman or Insomnia:
+import the file, then run folders 0–4 with the collection runner; folder 5 needs containers stopped by hand).
 
 ### Authentication (rpe-client-manager)
 

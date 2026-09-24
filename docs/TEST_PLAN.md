@@ -4,6 +4,12 @@ End-to-end checks of the three services running together in `docker compose`, in
 Run the blocks in order in one WSL shell: each block reuses the variables defined before it
 (see "Resuming at a later step" to start in the middle).
 
+`credit_info` is required when creating a customer. For now it's a placeholder rule: a catalog product id picks
+that product (if it's ATIVO), anything else (the plan uses `"standard"`) gets the default GOLD.
+
+The same checks, minus the ones that stop containers, are in the Postman collection
+[`RPE-Challenge.postman_collection.json`](RPE-Challenge.postman_collection.json) (imports into Insomnia too).
+
 ## 0. Setup
 
 ```bash
@@ -42,7 +48,7 @@ curl -s -o /dev/null -w "%{http_code}\n" $CM/auth/users -H "Authorization: Beare
 ```bash
 curl -s $CAT/products/$GOLD | pp                                                   # seeded GOLD, ATIVO, createdAt/updatedAt
 P=$(curl -s $CAT/products -H 'Content-Type: application/json' -d '{"name":" test card ","description":"QA"}' | j id); echo $P   # 201, name "TEST CARD"
-curl -s $CAT/products -H 'Content-Type: application/json' -d '{"name":"test card"}' | j code      # DUPLICATE_PRODUCT_NAME (409)
+curl -s $CAT/products -H 'Content-Type: application/json' -d '{"name":"test card"}' | j code      # PRODUCT_NAME_ALREADY_EXISTS (409)
 curl -s -X PUT $CAT/products/$P -H 'Content-Type: application/json' -d '{"name":"test card","description":"changed"}' | j updatedAt
 curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $CAT/products/$P                # 204 → CANCELADO
 curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $CAT/products/$P                # 204 again (idempotent)
@@ -69,14 +75,14 @@ docker exec rpe-postgres psql -U app -d rpe -c "select masked_number, left(numbe
 ## 5. Portador rules
 ```bash
 CPF=$(newcpf)
-curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"12\",\"birthDate\":\"1990-01-01\"}" | j code          # INVALID_CPF
-curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"2999-01-01\"}" | j status     # 400
-A=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"1990-01-01\"}" | j id)
-curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"1990-01-01\"}" | j code          # CPF_ALREADY_EXISTS
+curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"12\",\"birthDate\":\"1990-01-01\",\"credit_info\":\"standard\"}" | j code          # INVALID_CPF
+curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"2999-01-01\",\"credit_info\":\"standard\"}" | j status     # 400
+A=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"1990-01-01\",\"credit_info\":\"standard\"}" | j id)
+curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"1990-01-01\",\"credit_info\":\"standard\"}" | j code          # CPF_ALREADY_EXISTS
 curl -s -X PUT $CM/customers/$A -H "$H" -H 'Content-Type: application/json' -d '{"name":"Ana B","birthDate":"1990-01-01","status":"BLOQUEADO"}' | j status   # BLOQUEADO
 curl -s -X PUT $CM/customers/$A -H "$H" -H 'Content-Type: application/json' -d '{"name":"Ana B","birthDate":"1990-01-01","status":"CANCELADO"}' | j code     # STATUS_CHANGE_NOT_ALLOWED (422)
 curl -s -o /dev/null -w "%{http_code} " -X DELETE $CM/customers/$A -H "$H"; curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $CM/customers/$A -H "$H"   # 204 204
-curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"1990-01-01\"}" | pp                # CANCELLED_CUSTOMER_EXISTS + customerId
+curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Ana\",\"cpf\":\"$CPF\",\"birthDate\":\"1990-01-01\",\"credit_info\":\"standard\"}" | pp                # CANCELLED_CUSTOMER_EXISTS + customerId
 curl -s -X POST $CM/customers/$A/activate -H "$H" | j status; curl -s -X POST $CM/customers/$A/activate -H "$H" | j code   # ATIVO / CUSTOMER_ALREADY_ACTIVE
 ```
 
@@ -102,7 +108,7 @@ If LocalStack fails with "error mounting ... no such file or directory", run
 **a) Cartão Service down.** The customer is still created and read, and the card appears once the service is back:
 ```bash
 docker compose stop rpe-card-processor
-C2=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Joao\",\"cpf\":\"$(newcpf)\",\"birthDate\":\"1985-03-10\"}" | j id)
+C2=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Joao\",\"cpf\":\"$(newcpf)\",\"birthDate\":\"1985-03-10\",\"credit_info\":\"standard\"}" | j id)
 curl -s $CM/customers/$C2 -H "$H" | pp               # "card": null, "cardInfoAvailable": false
 docker compose start rpe-card-processor; sleep 25
 curl -s $CM/customers/$C2 -H "$H" | j card.product.name   # GOLD: the message waited in the queue
@@ -111,7 +117,7 @@ curl -s $CM/customers/$C2 -H "$H" | j card.product.name   # GOLD: the message wa
 **b) SQS (LocalStack) down.** The outbox keeps the event, and the customer is still created (201):
 ```bash
 docker compose stop localstack
-C3=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Rita\",\"cpf\":\"$(newcpf)\",\"birthDate\":\"1992-07-01\"}" | j id); echo $C3   # 201
+C3=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Rita\",\"cpf\":\"$(newcpf)\",\"birthDate\":\"1992-07-01\",\"credit_info\":\"standard\"}" | j id); echo $C3   # 201
 docker exec rpe-postgres psql -U app -d rpe -c "select status, attempts, left(payload_encrypted,20) enc, last_error from outbox_event where aggregate_id='$C3';"   # PENDING, ciphertext
 docker compose up -d --force-recreate --wait localstack   # recreates the queues (see the bind-mount note in CLAUDE.md)
 sleep 40; docker exec rpe-postgres psql -U app -d rpe -c "select status, attempts, payload_encrypted is null cleared from outbox_event where aggregate_id='$C3';"   # SENT, cleared=t
@@ -129,7 +135,7 @@ curl -s $CM/customers/$C -H "$H" | j card.product    # PLATINUM from the stored 
 **d) Retry, DLQ and redrive** (catalog still stopped):
 ```bash
 docker exec rpe-redis redis-cli --scan --pattern 'rpe-card-processor::*' | xargs -r docker exec -i rpe-redis redis-cli del
-C4=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Luis\",\"cpf\":\"$(newcpf)\",\"birthDate\":\"1980-01-01\"}" | j id)
+C4=$(curl -s $CM/customers -H "$H" -H 'Content-Type: application/json' -d "{\"name\":\"Luis\",\"cpf\":\"$(newcpf)\",\"birthDate\":\"1980-01-01\",\"credit_info\":\"standard\"}" | j id)
 docker logs -f rpe-card-processor 2>&1 | grep --line-buffered -E "Received|Dead-letter"   # attempts ~5s, ~20s apart; after ~2 min: ERROR "Dead-letter queue ... holds 1"; Ctrl+C
 docker compose start rpe-catalog; sleep 20
 docker exec rpe-localstack awslocal sqs start-message-move-task --source-arn arn:aws:sqs:us-east-1:000000000000:rpe-client-manager-queue-dlq
