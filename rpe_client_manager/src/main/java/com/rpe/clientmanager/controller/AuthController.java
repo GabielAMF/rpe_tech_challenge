@@ -8,10 +8,10 @@ import com.rpe.clientmanager.domain.AppUser;
 import com.rpe.clientmanager.domain.Username;
 import com.rpe.clientmanager.service.AuthService;
 import com.rpe.clientmanager.service.IssuedToken;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,6 +27,7 @@ import java.time.Duration;
 public class AuthController {
 
     private final AuthService authService;
+    private final UserMapper userMapper;
     private final Clock clock;
 
     /** Public. Exchanges username + password for a bearer token. */
@@ -43,6 +44,6 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     public UserResponse createUser(@Valid @RequestBody CreateUserRequest request) {
         AppUser user = authService.createUser(new Username(request.username()), request.password(), request.role());
-        return new UserResponse(user.getId(), user.getUsername(), user.getRole(), user.getCreatedAt());
+        return userMapper.toResponse(user);
     }
 }

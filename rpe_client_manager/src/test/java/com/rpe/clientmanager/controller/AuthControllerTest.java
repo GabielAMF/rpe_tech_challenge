@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(AuthController.class)
-@Import({SecurityConfig.class, SecurityProblemHandler.class, ClockConfig.class})
+@Import({UserMapper.class, SecurityConfig.class, SecurityProblemHandler.class, ClockConfig.class})
 class AuthControllerTest {
 
     private static final String NEW_USER = """

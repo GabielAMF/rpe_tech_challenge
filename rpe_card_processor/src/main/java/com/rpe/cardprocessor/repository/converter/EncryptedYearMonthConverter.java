@@ -1,6 +1,5 @@
 package com.rpe.cardprocessor.repository.converter;
 
-import com.rpe.cardprocessor.service.CardCipher;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import lombok.RequiredArgsConstructor;

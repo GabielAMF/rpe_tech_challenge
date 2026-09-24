@@ -127,6 +127,28 @@ left too many SOLID issues, so we chose the layered clean-up:
 - **D** — the controller depends on the `ProductService` interface, and the service works with domain types,
   never the web DTOs.
 
+A final SOLID review of the three services (after all features) applied the same rules everywhere:
+
+- **Dependencies point inward.** The AES ciphers moved from `service` to `repository/converter`, next to the only
+  classes that use them, so entities → converters no longer leads back into the service layer. `TokenService` is an
+  interface; its JWT implementation lives in `config` and owns the claim names `SecurityConfig` reads.
+- **Open for extension.** `ProductSelectionPolicy` is an interface: the real credit analysis will be a new
+  implementation replacing the placeholder `CreditInfoProductSelectionPolicy`, without touching the service.
+- **One place per rule.** `CustomerName` joins `Cpf`/`Username`/`ProductName` as a validating value object, and
+  `CardProductionCommand` validates itself instead of the SQS listener doing it. Every response goes through a
+  `...Mapper` (`UserMapper` added).
+- **Accepted trade-offs.** Entities keep `@Convert(EncryptedStringConverter.class)`: like the other JPA annotations,
+  it's mapping metadata, and the alternative (XML mapping) costs more than it gives. Services read typed
+  `config.*Properties` records (settings, not infrastructure). `SqsOutboxEventSender` routes its single event type
+  with an `if`; a routing table can come with a second event type.
+
+### Tests isolated from the running applications
+
+The integration tests use the real infrastructure but never the applications' data: database `rpe_test` (created by
+`docker/postgres/init`), their own SQS queues and their own Redis key prefix. So `./mvnw test` can run while
+`docker compose up` is running, and the tests never consume, cache or create anything the apps see. On a volume
+created before this change, create the database once: `docker exec rpe-postgres createdb -U app rpe_test`.
+
 ### Repositories: `JpaRepository` by convention
 
 Repositories extend `JpaRepository`, the usual Spring Data convention, even though it exposes hard-delete

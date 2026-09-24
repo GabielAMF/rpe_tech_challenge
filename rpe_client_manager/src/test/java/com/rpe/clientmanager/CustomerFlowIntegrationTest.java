@@ -74,6 +74,12 @@ class CustomerFlowIntegrationTest {
     private final String cpf = "TST" + String.format("%08d", ThreadLocalRandom.current().nextInt(100_000_000));
     private String token;
 
+    /** The test queue (see src/test/resources/config/application.yml) must exist before it is read. */
+    @BeforeEach
+    void createTestQueue() {
+        sqs.createQueue(r -> r.queueName(queue)).join();
+    }
+
     @BeforeEach
     void login() throws Exception {
         String body = mockMvc.perform(post("/api/v1/auth/login")

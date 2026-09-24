@@ -1,7 +1,6 @@
 package com.rpe.clientmanager.domain;
 
 import com.rpe.clientmanager.exception.CustomerAlreadyActiveException;
-import com.rpe.clientmanager.exception.InvalidCustomerNameException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -17,7 +16,7 @@ class CustomerTest {
 
     @Test
     void newCustomerIsAtivoWithTrimmedNameAndNormalizedCpf() {
-        Customer customer = new Customer("  Maria Silva ", CPF, BIRTH_DATE);
+        Customer customer = new Customer(new CustomerName("  Maria Silva "), CPF, BIRTH_DATE);
 
         assertThat(customer.getName()).isEqualTo("Maria Silva");
         assertThat(customer.getCpf()).isEqualTo("12345678909");
@@ -25,17 +24,11 @@ class CustomerTest {
     }
 
     @Test
-    void rejectsBlankName() {
-        assertThatThrownBy(() -> new Customer("   ", CPF, BIRTH_DATE))
-                .isInstanceOf(InvalidCustomerNameException.class);
-    }
-
-    @Test
     void updateChangesNameAndBirthDateOnly() {
-        Customer customer = new Customer("Maria", CPF, BIRTH_DATE);
+        Customer customer = new Customer(new CustomerName("Maria"), CPF, BIRTH_DATE);
         customer.block();
 
-        customer.update("Maria Souza", LocalDate.of(1991, 1, 1));
+        customer.update(new CustomerName("Maria Souza"), LocalDate.of(1991, 1, 1));
 
         assertThat(customer.getName()).isEqualTo("Maria Souza");
         assertThat(customer.getBirthDate()).isEqualTo(LocalDate.of(1991, 1, 1));
@@ -67,13 +60,13 @@ class CustomerTest {
 
     @Test
     void activateRejectsActiveCustomer() {
-        Customer customer = new Customer("Maria", CPF, BIRTH_DATE);
+        Customer customer = new Customer(new CustomerName("Maria"), CPF, BIRTH_DATE);
 
         assertThatThrownBy(customer::activate).isInstanceOf(CustomerAlreadyActiveException.class);
     }
 
     private static Customer inStatus(CustomerStatus status) {
-        Customer customer = new Customer("Maria", CPF, BIRTH_DATE);
+        Customer customer = new Customer(new CustomerName("Maria"), CPF, BIRTH_DATE);
         switch (status) {
             case ATIVO -> { }
             case BLOQUEADO -> customer.block();

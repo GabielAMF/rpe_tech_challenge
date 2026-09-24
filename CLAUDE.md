@@ -60,12 +60,16 @@ error: add an `ErrorCode` constant and a `CustomException` subclass; no handler 
 Same layering and error format as rpe_catalog (base classes copied, not shared — services stay independent).
 Security (`config/SecurityConfig`): stateless JWT, HS256 via `JwtEncoder`/`JwtDecoder`, issued by
 `POST /api/v1/auth/login` (public); everything else needs a bearer token. Users live in `app_user` (BCrypt);
-an ADMIN is created on startup from `app.security.bootstrap-user`. Roles come from the `roles` claim and are
+an ADMIN is created on startup from `app.security.bootstrap-user`. `AuthService` depends on the `TokenService`
+interface; `config/JwtTokenService` implements it and owns the claim names (`ROLES_CLAIM`, read by `SecurityConfig`).
+`AuthController` builds responses with `UserMapper`. Roles come from the `roles` claim and are
 enforced with URL rules in `SecurityConfig`, **not** `@PreAuthorize` (an `AccessDeniedException` thrown in a
 controller would hit `GlobalExceptionHandler`'s catch-all and become a 500). 401/403 are written by
 `SecurityProblemHandler` in the same ProblemDetail shape. Never log passwords or tokens.
 
 Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}`, `POST`, `POST /{id}/activate`.
+- `CustomerName` value object (trimmed, non-empty, `toString()` hidden) is built in the controller like `Cpf`;
+  `CustomerService`/`Customer` take it, never a raw String.
 - `Cpf` value object: formatting stripped, upper-cased, exactly 11 letters/digits (alphanumeric CPF is expected;
   check digits deliberately not validated yet). Unique and immutable (`updatable = false`, not in the PUT DTO).
 - Status: `DELETE` → CANCELADO (idempotent); `activate` → ATIVO from BLOQUEADO/CANCELADO (422 if already
@@ -82,8 +86,8 @@ Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}
   batch, stops at the first failure) and sends them via `OutboxEventSender` → `messaging/SqsOutboxEventSender`
   (plain JSON, no Java type header — see `SqsConfig`; `app.sqs.send-timeout` per send). Retry rules live in
   `domain/OutboxRetryPolicy` + `OutboxEvent.recordFailure` (backoff, then FAILED after `max-attempts`; FAILED keeps
-  the payload for a manual resend, SQL in README). Payload is AES-GCM encrypted (`PayloadCipher`,
-  `repository/converter/EncryptedStringConverter`, `app.outbox.encryption-key`) and nulled on SENT; `OutboxPurger`
+  the payload for a manual resend, SQL in README). Payload is AES-GCM encrypted (`repository/converter/PayloadCipher`
+  + `EncryptedStringConverter`, `app.outbox.encryption-key`) and nulled on SENT; `OutboxPurger`
   deletes SENT rows after `app.outbox.retention`. Delivery is at least once with a stable `eventId`; the consumer
   de-duplicates. `CardProductionRequested` is the message contract; its `toString()` hides personal data.
 - `GET /customers/{id}` → `CustomerService.getDetails` (not transactional: no DB transaction during HTTP) uses
@@ -97,8 +101,11 @@ Same layering/exception base (copied). `messaging/CardProductionListener` (`@Sqs
 (`CardProductionRequestedMessage` = the contract) → `CardProductionService.produce`. Throwing leaves the message
 un-acked → SQS retries → DLQ after 3 receives. Idempotent: one card per customer (`uk_card_customer`) and per
 event (`uk_card_source_event`); a repeat returns the existing card.
-- `ProductSelectionPolicy` is an explicit **placeholder**: `creditInfo` parsed as a catalog product id (used if it
-  exists and is ATIVO), else `app.card.default-product-id` (seeded GOLD).
+- `ProductSelectionPolicy` is an interface; the current implementation `CreditInfoProductSelectionPolicy` is an explicit
+  **placeholder**: `creditInfo` parsed as a catalog product id (used if it exists and is ATIVO), else
+  `app.card.default-product-id` (seeded GOLD). The real rule = a new implementation, no change to the service.
+- `CardProductionCommand` validates itself (eventId, customerId, holder name) → `InvalidCardProductionRequestException`;
+  the listener only maps the message and delegates.
 - Retry/DLQ: `config/SqsConfig` registers an `ExponentialBackoffErrorHandler` bean (picked up by Spring Cloud AWS's
   default listener factory; `app.sqs.retry.*`: 5s ×4, cap 5m) that sets the failed message's visibility from its
   receive count. Queue `VisibilityTimeout=30`, redrive after 3 receives, DLQ retention 14 days (LocalStack init
@@ -110,15 +117,15 @@ event (`uk_card_source_event`); a repeat returns the existing card.
 - `CardDataGenerator`: random operator (VISA/MASTERCARD/ELO), number = operator prefix + random digits + Luhn,
   expiry `YearMonth` + `app.card.validity-years`, 3-digit CVV, from a `SecureRandom` bean.
 - Number, expiry and CVV are AES-256-GCM encrypted at rest by JPA converters (`repository/converter`, Spring beans
-  using `CardCipher`, key `app.card.encryption-key` = base64 of 32 bytes). Only `maskedNumber` may leave the
+  using `repository/converter/CardCipher`, key `app.card.encryption-key` = base64 of 32 bytes). Only `maskedNumber` may leave the
   service; never log card data, the holder name, CPF or credit info (`toString()`s of messages/commands hide them).
 - `GET /api/v1/customers/{customerId}/card` (`CustomerCardController` → `CardQueryService` → `CardMapper`/`CardResponse`,
   the contract mirrored by client_manager's `CardProcessorCardResponse`): 404 `CARD_NOT_FOUND` until produced.
   The product (id/name/description/status) is read through `CatalogGateway` (cached); if the catalog fails or no
   longer knows it, the card's snapshot (`CardProduct`) is used with a null status — never hidden by an outage.
   Errors go through `controller/GlobalExceptionHandler` (copied from client_manager).
-- Spring-context tests listen on `rpe-card-processor-test-queue` (`src/test/resources/config/application.yml`), and
-  the end-to-end test on a per-run queue, so tests never consume the real queue.
+- Spring-context tests listen on `rpe-card-processor-test-queue`, the flow/retry tests on per-run queues, and the
+  test cache prefix is `rpe-card-processor-test::`, so tests never touch what a running container uses.
 
 ## Conventions to follow in new code
 
@@ -127,7 +134,8 @@ These were agreed with the user while building rpe_catalog and rpe_client_manage
 - Action endpoints use POST (`POST /{id}/activate`), never PATCH. `DELETE` is a soft delete to CANCELADO and is
   idempotent (204 again); status changes only through dedicated endpoints/methods, not a generic PUT field.
 - Normalized input becomes a value object record that validates in its constructor (`ProductName`, `Username`,
-  `Cpf`); rules that need the database live in a `...Policy` component; services are interface + `...Impl` and
+  `Cpf`, `CustomerName`, `CardProductionCommand`); rules that may be replaced sit behind an interface
+  (`ProductSelectionPolicy`, `TokenService`); crypto lives in `repository/converter` next to its converters; rules that need the database live in a `...Policy` component; services are interface + `...Impl` and
   work with domain types only; a `...Mapper` in `controller` builds response DTOs.
 - Errors: add an `ErrorCode` + `CustomException`/`BusinessRuleException` subclass. Conflicts that point to a
   cancelled record return its id (`productId`/`customerId`) and say how to reactivate it. 422 for business-rule
@@ -208,10 +216,13 @@ cd rpe_<service> && ./mvnw test -Dtest=ClassName#method   # single test
 cd rpe_<service> && ./mvnw -B package -DskipTests         # build the jar (same as the Dockerfile)
 ```
 
-The `@SpringBootTest` context-load tests connect to the real Postgres (plus Redis/LocalStack for the
-services that use them), so start the infrastructure first. Stop the app containers
-(`docker compose stop rpe-catalog rpe-client-manager rpe-card-processor`) before running a service with `mvnw`:
-they use the same ports, and the card-processor container would consume the queue.
+The `@SpringBootTest` tests connect to the real Postgres (plus Redis/LocalStack for the services that use them),
+so start the infrastructure first. They are **isolated from the compose apps**, so they can run while the apps are
+up: each service's `src/test/resources/config/application.yml` points to database `rpe_test` (created by
+`docker/postgres/init` on a new volume; on an old one: `docker exec rpe-postgres createdb -U app rpe_test`), test
+queues (`rpe-client-manager-test-queue`, `rpe-card-processor-test-queue`, per-run queues) and a test cache prefix.
+Stop the app containers (`docker compose stop rpe-catalog rpe-client-manager rpe-card-processor`) only before
+running a service with `mvnw spring-boot:run` (same ports, same queue).
 
 All configuration in `application.yml` reads environment variables with localhost defaults.
 
@@ -244,15 +255,14 @@ Kept committed on purpose, to track what's missing. Update it when a branch is m
 Done and merged into `dev` (in order): catalog CRUD → exception consistency → remove Feign from catalog →
 status endpoints → SOLID refactor → client_manager JWT auth → customer CRUD → card production (SQS publish +
 aggregated GET) → catalog product seed → card_processor card production → card_processor card API (WireMock
-test-only) → client_manager transactional outbox + idempotency definitions.
+test-only) → client_manager transactional outbox + idempotency definitions → OpenAPI/Swagger → single-command
+compose → SQS retry/backoff + DLQ monitor. The full challenge requirements were checked on 2026-09-24; every gap
+found is closed.
 
-The full challenge requirements were checked on 2026-09-24; the gaps are the items below.
+In progress: `refactor/solid-review` — SOLID review fixes (see README "Code structure") + tests isolated from the
+compose apps (`rpe_test` database, test queues, test cache prefix). All requirement gaps closed and merged.
 
-In progress: `feature/card-processor-sqs-retry-dlq` — exponential backoff, DLQ monitor, queue attributes, product
-details read from the catalog on GET. (`feature/openapi-docs`, `chore/compose-single-command` merged.)
-
-Next (agreed order, one branch each):
-1. Integrated test from scratch (`docker compose down -v` + startup), including the unhappy paths: card processor
-   stopped → `cardInfoAvailable: false`; catalog stopped → snapshot product; LocalStack stopped → customer still
-   created (201), event PENDING until LocalStack is back.
-2. Full SOLID/structure review of the three services (last, after all refactoring).
+Next: the user's integrated test from scratch (`docker compose down -v && docker compose up --build`), including
+the unhappy paths: card processor stopped → `cardInfoAvailable: false`; catalog stopped → snapshot product with
+null status; LocalStack stopped → customer still created (201), event PENDING until LocalStack is back; a message
+failing 3 times → DLQ + monitor ERROR → redrive.

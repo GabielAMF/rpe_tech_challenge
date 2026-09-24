@@ -2,6 +2,7 @@ package com.rpe.clientmanager.service;
 
 import com.rpe.clientmanager.domain.Cpf;
 import com.rpe.clientmanager.domain.Customer;
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.domain.CustomerStatus;
 
 import java.time.LocalDate;
@@ -28,13 +29,13 @@ public interface CustomerService {
      *
      * @throws com.rpe.clientmanager.exception.BusinessRuleException if the CPF is taken
      */
-    Customer create(String name, Cpf cpf, LocalDate birthDate, String creditInfo);
+    Customer create(CustomerName name, Cpf cpf, LocalDate birthDate, String creditInfo);
 
     /**
      * Changes name and birth date. {@code status} is optional and may only be BLOQUEADO (or the current status,
      * which changes nothing); cancelling and activating have their own operations.
      */
-    Customer update(UUID id, String name, LocalDate birthDate, CustomerStatus status);
+    Customer update(UUID id, CustomerName name, LocalDate birthDate, CustomerStatus status);
 
     /** Soft delete: marks the customer CANCELADO. Idempotent. */
     void cancel(UUID id);

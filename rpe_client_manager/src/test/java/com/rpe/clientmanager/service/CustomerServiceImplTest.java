@@ -1,5 +1,6 @@
 package com.rpe.clientmanager.service;
 
+import com.rpe.clientmanager.domain.CustomerName;
 import com.rpe.clientmanager.domain.Customer;
 import com.rpe.clientmanager.domain.CustomerStatus;
 import com.rpe.clientmanager.exception.CustomerAlreadyActiveException;
@@ -83,7 +84,7 @@ class CustomerServiceImplTest {
     void createChecksRulesThenSavesAtivoCustomer() {
         when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Customer created = customerService.create("Maria", CPF, BIRTH_DATE, "score=780");
+        Customer created = customerService.create(new CustomerName("Maria"), CPF, BIRTH_DATE, "score=780");
 
         verify(birthDatePolicy).validate(BIRTH_DATE);
         verify(cpfPolicy).ensureAvailable(CPF);
@@ -95,7 +96,7 @@ class CustomerServiceImplTest {
     void createDoesNotSaveWhenCpfIsTaken() {
         doThrow(new DuplicateCpfException(CPF)).when(cpfPolicy).ensureAvailable(CPF);
 
-        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE, "score=780"))
+        assertThatThrownBy(() -> customerService.create(new CustomerName("Maria"), CPF, BIRTH_DATE, "score=780"))
                 .isInstanceOf(DuplicateCpfException.class);
         verify(customerRepository, never()).saveAndFlush(any());
         verifyNoInteractions(cardProductionPublisher);
@@ -110,7 +111,7 @@ class CustomerServiceImplTest {
             return saved;
         });
 
-        customerService.create("Maria Silva", CPF, BIRTH_DATE, "score=780");
+        customerService.create(new CustomerName("Maria Silva"), CPF, BIRTH_DATE, "score=780");
 
         InOrder order = inOrder(customerRepository, cardProductionPublisher);
         order.verify(customerRepository).saveAndFlush(any(Customer.class));
@@ -150,7 +151,7 @@ class CustomerServiceImplTest {
     void createDoesNotTouchCpfOrDatabaseWhenBirthDateIsInvalid() {
         doThrow(new InvalidBirthDateException()).when(birthDatePolicy).validate(BIRTH_DATE);
 
-        assertThatThrownBy(() -> customerService.create("Maria", CPF, BIRTH_DATE, "score=780"))
+        assertThatThrownBy(() -> customerService.create(new CustomerName("Maria"), CPF, BIRTH_DATE, "score=780"))
                 .isInstanceOf(InvalidBirthDateException.class);
         verifyNoInteractions(cpfPolicy, customerRepository, cardProductionPublisher);
     }
@@ -160,7 +161,7 @@ class CustomerServiceImplTest {
         Customer customer = customer(id);
         when(customerRepository.findById(id)).thenReturn(Optional.of(customer));
 
-        Customer updated = customerService.update(id, "Maria Souza", NEW_BIRTH_DATE, null);
+        Customer updated = customerService.update(id, new CustomerName("Maria Souza"), NEW_BIRTH_DATE, null);
 
         assertThat(updated.getName()).isEqualTo("Maria Souza");
         assertThat(updated.getBirthDate()).isEqualTo(NEW_BIRTH_DATE);
@@ -175,7 +176,7 @@ class CustomerServiceImplTest {
         Customer customer = from == CustomerStatus.CANCELADO ? cancelledCustomer(id) : customer(id);
         when(customerRepository.findById(id)).thenReturn(Optional.of(customer));
 
-        Customer updated = customerService.update(id, "Maria", BIRTH_DATE, CustomerStatus.BLOQUEADO);
+        Customer updated = customerService.update(id, new CustomerName("Maria"), BIRTH_DATE, CustomerStatus.BLOQUEADO);
 
         assertThat(updated.getStatus()).isEqualTo(CustomerStatus.BLOQUEADO);
     }
@@ -185,7 +186,7 @@ class CustomerServiceImplTest {
         Customer customer = cancelledCustomer(id);
         when(customerRepository.findById(id)).thenReturn(Optional.of(customer));
 
-        Customer updated = customerService.update(id, "Maria", BIRTH_DATE, CustomerStatus.CANCELADO);
+        Customer updated = customerService.update(id, new CustomerName("Maria"), BIRTH_DATE, CustomerStatus.CANCELADO);
 
         assertThat(updated.getStatus()).isEqualTo(CustomerStatus.CANCELADO);
     }
@@ -193,11 +194,11 @@ class CustomerServiceImplTest {
     @ParameterizedTest
     @EnumSource(value = CustomerStatus.class, names = {"ATIVO", "CANCELADO"})
     void updateRejectsStatusChangesOtherThanBlockingAndChangesNothing(CustomerStatus requested) {
-        Customer customer = new Customer("Maria", CPF, BIRTH_DATE);
+        Customer customer = new Customer(new CustomerName("Maria"), CPF, BIRTH_DATE);
         customer.block();
         when(customerRepository.findById(id)).thenReturn(Optional.of(customer));
 
-        assertThatThrownBy(() -> customerService.update(id, "Other Name", NEW_BIRTH_DATE, requested))
+        assertThatThrownBy(() -> customerService.update(id, new CustomerName("Other Name"), NEW_BIRTH_DATE, requested))
                 .isInstanceOf(StatusChangeNotAllowedException.class);
         assertThat(customer.getName()).isEqualTo("Maria");
         assertThat(customer.getStatus()).isEqualTo(CustomerStatus.BLOQUEADO);

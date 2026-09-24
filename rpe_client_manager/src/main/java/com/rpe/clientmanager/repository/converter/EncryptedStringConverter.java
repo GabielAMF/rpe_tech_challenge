@@ -1,6 +1,5 @@
 package com.rpe.clientmanager.repository.converter;
 
-import com.rpe.clientmanager.service.PayloadCipher;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import lombok.RequiredArgsConstructor;

@@ -1,7 +1,6 @@
 package com.rpe.clientmanager.domain;
 
 import com.rpe.clientmanager.exception.CustomerAlreadyActiveException;
-import com.rpe.clientmanager.exception.InvalidCustomerNameException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -45,16 +44,16 @@ public class Customer extends AuditableEntity {
     @Column(name = "status", nullable = false, length = 20)
     private CustomerStatus status;
 
-    public Customer(String name, Cpf cpf, LocalDate birthDate) {
-        this.name = normalizeName(name);
+    public Customer(CustomerName name, Cpf cpf, LocalDate birthDate) {
+        this.name = Objects.requireNonNull(name, "name").value();
         this.cpf = Objects.requireNonNull(cpf, "cpf").value();
         this.birthDate = Objects.requireNonNull(birthDate, "birthDate");
         this.status = CustomerStatus.ATIVO;
     }
 
     /** Name and birth date only: the CPF is immutable and status changes have their own methods. */
-    public void update(String name, LocalDate birthDate) {
-        this.name = normalizeName(name);
+    public void update(CustomerName name, LocalDate birthDate) {
+        this.name = Objects.requireNonNull(name, "name").value();
         this.birthDate = Objects.requireNonNull(birthDate, "birthDate");
     }
 
@@ -75,13 +74,5 @@ public class Customer extends AuditableEntity {
             throw new CustomerAlreadyActiveException(id);
         }
         this.status = CustomerStatus.ATIVO;
-    }
-
-    private static String normalizeName(String name) {
-        String trimmed = name == null ? "" : name.trim();
-        if (trimmed.isEmpty()) {
-            throw new InvalidCustomerNameException();
-        }
-        return trimmed;
     }
 }

@@ -4,7 +4,6 @@ import com.rpe.clientmanager.domain.AppUser;
 import com.rpe.clientmanager.domain.UserRole;
 import com.rpe.clientmanager.domain.Username;
 import com.rpe.clientmanager.service.IssuedToken;
-import com.rpe.clientmanager.service.TokenService;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -69,8 +68,8 @@ class JwtRoundTripTest {
                 .isInstanceOf(JwtException.class);
     }
 
-    private TokenService tokenService(SecurityProperties properties, Clock clock) {
-        return new TokenService(config.jwtEncoder(properties), properties, clock);
+    private JwtTokenService tokenService(SecurityProperties properties, Clock clock) {
+        return new JwtTokenService(config.jwtEncoder(properties), properties, clock);
     }
 
     private static SecurityProperties properties(String secret, String issuer) {
