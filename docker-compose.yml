@@ -9,7 +9,6 @@ x-app-env: &app-env
   AWS_REGION: ${AWS_REGION:-us-east-1}
   AWS_SQS_ENDPOINT: http://localstack:4566
   CLIENT_MANAGER_QUEUE: ${CLIENT_MANAGER_QUEUE:-rpe-client-manager-queue}
-  EXTERNAL_API_BASE_URL: http://wiremock:8080
 
 x-infra-deps: &infra-deps
   postgres:
@@ -138,12 +137,15 @@ services:
       SERVER_PORT: 8083
       # Only the card processor caches.
       REDIS_HOST: redis
+      CATALOG_BASE_URL: http://rpe-catalog:8080
     depends_on:
       <<: *infra-deps
       redis:
         condition: service_healthy
       localstack:
         condition: service_healthy
+      rpe-catalog:
+        condition: service_started
 
 volumes:
   postgres-data:

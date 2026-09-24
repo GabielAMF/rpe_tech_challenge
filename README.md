@@ -148,6 +148,20 @@ still returned, with `"card": null` and `"cardInfoAvailable": false`.
 > the customer in the same transaction and a relay publishes it with retries, removing the 503. It's marked
 > `TODO(outbox)` in `SqsCardProductionPublisher`.
 
+### Card processor: product choice, card data and encryption
+
+- **Consuming**: rpe-card-processor listens on `rpe-client-manager-queue`. A message that fails (e.g. the catalog is
+  down) is retried by SQS and moved to the DLQ after 3 attempts. Processing is idempotent: the same message, or a
+  second one for the same customer, never creates a second card.
+- **Product (placeholder rule)**: there is no credit analysis yet, so `credit_info` is read as a catalog product
+  id; if it isn't one, or that product isn't ATIVO, the default product (GOLD) is used. Catalog responses are
+  cached in Redis for 10 minutes.
+- **Card data**: the operator (VISA, MASTERCARD, ELO) is picked at random and the 16-digit number is generated with
+  that operator's prefix and a valid Luhn check digit, so both always agree. Expiry is month/year, 5 years ahead.
+- **Sensitive data**: number, expiry and CVV are encrypted in the database (AES-256-GCM, key in
+  `CARD_ENCRYPTION_KEY`, 32 random bytes in base64, always set outside local development). Only the masked number
+  (`**** **** **** 1234`) is ever exposed, and none of it is logged.
+
 ### Independent services, one database
 
 Each service is its own Maven project (no parent pom) so it can be built, versioned and deployed alone. They
