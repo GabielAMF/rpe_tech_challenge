@@ -78,6 +78,25 @@ Customers at `/api/v1/customers` (any authenticated user): `GET/PUT/DELETE /{id}
   `CardInfoGateway` → Feign `CardProcessorClient` (`integrations.card-processor.base-url`, WireMock for now;
   1s connect / 2s read timeout). The gateway never throws: 404 → no card yet, any other failure → unavailable.
 
+### rpe_card_processor
+
+Same layering/exception base (copied). `messaging/CardProductionListener` (`@SqsListener` on
+`app.sqs.client-manager-queue`) consumes rpe_client_manager's `CARD_PRODUCTION_REQUESTED` JSON
+(`CardProductionRequestedMessage` = the contract) → `CardProductionService.produce`. Throwing leaves the message
+un-acked → SQS retries → DLQ after 3 receives. Idempotent: one card per customer (`uk_card_customer`) and per
+event (`uk_card_source_event`); a repeat returns the existing card.
+- `ProductSelectionPolicy` is an explicit **placeholder**: `creditInfo` parsed as a catalog product id (used if it
+  exists and is ATIVO), else `app.card.default-product-id` (seeded GOLD).
+- `CachedCatalogGateway` → Feign `CatalogClient` (`integrations.catalog.base-url`), `@Cacheable` in Redis cache
+  `catalog-products` as JSON (`CacheConfig`); only found products are cached (Optional + `unless`).
+- `CardDataGenerator`: random operator (VISA/MASTERCARD/ELO), number = operator prefix + random digits + Luhn,
+  expiry `YearMonth` + `app.card.validity-years`, 3-digit CVV, from a `SecureRandom` bean.
+- Number, expiry and CVV are AES-256-GCM encrypted at rest by JPA converters (`repository/converter`, Spring beans
+  using `CardCipher`, key `app.card.encryption-key` = base64 of 32 bytes). Only `maskedNumber` may leave the
+  service; never log card data, the holder name, CPF or credit info (`toString()`s of messages/commands hide them).
+- Spring-context tests listen on `rpe-card-processor-test-queue` (`src/test/resources/config/application.yml`), and
+  the end-to-end test on a per-run queue, so tests never consume the real queue.
+
 ## Requirements the services must cover
 
 - Expose REST APIs and call other applications (Spring Cloud OpenFeign; external APIs stubbed by WireMock).

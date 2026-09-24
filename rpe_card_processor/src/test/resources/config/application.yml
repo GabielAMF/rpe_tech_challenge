@@ -1,0 +1,5 @@
+# Test-only overrides, merged on top of src/main/resources/application.yml.
+app:
+  sqs:
+    # Tests listen on their own queue (created automatically), so they never consume the real queue's messages.
+    client-manager-queue: rpe-card-processor-test-queue
